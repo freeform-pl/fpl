@@ -1,0 +1,80 @@
+[project]
+name = "tql"
+version = "0.0.0"
+requires-python = ">=3.9,<3.10"
+dependencies = [
+  "absl-py",
+  "chex",
+  "Cython==0.29.34",
+  "distrax",
+  "dm_env_wrappers",
+  "easydict",
+  "flax",
+  "gym==0.23.1",
+  "gymnasium==0.29.1",
+  "gymnasium-robotics==1.2.2",
+  "h5py",
+  "jax-jumpy==1.0.0",
+  "jupyter",
+  "matplotlib",
+  "ml_collections",
+  "moviepy",
+  "numpy",
+  "ogbench==1.1.0",
+  "optax==0.1.5",
+  "orbax-checkpoint==0.2.3",
+  "pip==22.2.2",
+  "scikit-learn",
+  "scipy",
+  "seaborn",
+  "shimmy[gym-v21,gym-v26]",
+  "submitit",
+  "tensorboardX",
+  "tensorflow-cpu==2.12.0",
+  "tensorflow-estimator==2.12.0",
+  "tensorflow-io-gcs-filesystem==0.34.0",
+  "tensorflow-probability==0.19.0",
+  "tqdm",
+  "wandb",
+  "wandb_osh",
+  "d4rl @ git+https://github.com/Farama-Foundation/D4RL.git@2b96431a0e9fd90c8032624b0dc3cd4514d15632",
+  "robomimic @ git+https://github.com/ARISE-Initiative/robomimic@dde3a6e74886e0768cedf18f8f9c813d47d31ebd",
+  "robosuite @ git+https://github.com/ARISE-Initiative/robosuite@de64fa5935f9f30ce01b36a3ef1a3242060b9cdb",
+  "transformers==4.46.3",
+  "torch==2.3.1+cpu",
+  "torchvision==0.18.1+cpu",
+  "patchelf>=0.17.2.4",
+  "tyro>=1.0.4",
+  "ipdb>=0.13.13",
+  "pandas>=2.0.3",
+  "pyarrow>=17.0.0",
+  "jax[cuda12-pip]==0.4.17",
+  "nvidia-cudnn-cu12<9.0",
+  "scipy<1.13",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["agents", "utils", "envs"]
+
+[tool.uv]
+override-dependencies = ["mujoco==3.2.3"]
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+find-links = ["https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
