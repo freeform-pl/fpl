@@ -3,4 +3,4 @@ exp
 .venv
 .claude
 wandb
-
+slurm

@@ -17,6 +17,7 @@ from datetime import datetime
 
 import numpy as np
 import torch
+import torchvision.transforms.v2 as T
 import wandb
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -88,6 +89,25 @@ def set_seed(seed: int):
 def normalize(x: torch.Tensor) -> torch.Tensor:
     """Convert uint8 images (..., 3, H, W) to float32 in [0, 1]."""
     return x.float() / 255.0
+
+
+_augment = T.Compose([
+    T.RandomResizedCrop(size=128, scale=(0.85, 1.0), ratio=(0.9, 1.1)),
+    T.RandomRotation(degrees=10),
+    T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05),
+])
+
+
+def augment_traj(x: torch.Tensor) -> torch.Tensor:
+    """Apply consistent augmentation across all frames of each trajectory.
+
+    x: (B, T, 3, H, W) float32 in [0, 1]
+    Returns: (B, T, 3, H, W)
+    """
+    B, T, C, H, W = x.shape
+    # Apply per-trajectory: same random params for all T frames of a given trajectory
+    out = torch.stack([_augment(x[b]) for b in range(B)])  # each call samples new params
+    return out
 
 
 @torch.no_grad()
@@ -217,10 +237,10 @@ def main():
     epoch_pbar = tqdm(range(args.epochs), desc="Epochs")
     for epoch in epoch_pbar:
         for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}", leave=False):
-            tp_a = normalize(batch["traj_a"]["third_person"].to(device))
-            wr_a = normalize(batch["traj_a"]["wrist"].to(device))
-            tp_b = normalize(batch["traj_b"]["third_person"].to(device))
-            wr_b = normalize(batch["traj_b"]["wrist"].to(device))
+            tp_a = augment_traj(normalize(batch["traj_a"]["third_person"].to(device)))
+            wr_a = augment_traj(normalize(batch["traj_a"]["wrist"].to(device)))
+            tp_b = augment_traj(normalize(batch["traj_b"]["third_person"].to(device)))
+            wr_b = augment_traj(normalize(batch["traj_b"]["wrist"].to(device)))
             labels = batch["labels"].to(device)
 
             optimizer.zero_grad()
@@ -264,20 +284,19 @@ def main():
                 )
                 acc_str = " | ".join(f"{k}: {v:.2f}" for k, v in zip(preference_keys, val_acc))
                 print(f"  [Val] Step {global_step:5d} | Loss {val_loss:.4f} | Mean acc {mean_val_acc:.3f} | {acc_str}")
-                if use_wandb:
-                    wandb.log({
-                        "val/loss": val_loss,
-                        "val/acc_mean": mean_val_acc,
-                        **{f"val/acc_{k}": v for k, v in zip(preference_keys, val_acc)},
-                    }, step=global_step)
                 plot_training_curves(
                     train_losses, train_accs, val_losses, val_accs,
                     out_path=os.path.join(args.out_dir, "training_curves.png"),
                     preference_keys=preference_keys,
                 )
 
-            # ---- visualization ----
+            # ---- visualization + wandb val logging ----
             if global_step % args.vis_interval == 0:
+                val_loss_vis, val_acc_vis = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys))
+                mean_val_acc_vis = val_acc_vis.mean()
+                acc_str_vis = " | ".join(f"{k}: {v:.2f}" for k, v in zip(preference_keys, val_acc_vis))
+                print(f"  [Vis/Val] Step {global_step:5d} | Loss {val_loss_vis:.4f} | Mean acc {mean_val_acc_vis:.3f} | {acc_str_vis}")
+
                 vis_step_dir = os.path.join(vis_dir, f"step{global_step:06d}")
                 n_vis = visualize_validation_batch(
                     model, val_ds, device,
@@ -287,10 +306,17 @@ def main():
                     step=global_step,
                 )
                 print(f"  [Vis] Saved {n_vis} validation figures → {vis_step_dir}")
+
                 if use_wandb:
-                    for fname in os.listdir(vis_step_dir):
-                        if fname.endswith(".mp4"):
-                            wandb.log({"val/video": wandb.Video(os.path.join(vis_step_dir, fname), format="mp4")}, step=global_step)
+                    wandb.log({
+                        "val/loss": val_loss_vis,
+                        "val/acc_mean": float(mean_val_acc_vis),
+                        **{f"val/acc_{k}": float(v) for k, v in zip(preference_keys, val_acc_vis)},
+                        **{
+                            f"val/video_{i}": wandb.Video(os.path.join(vis_step_dir, fname), format="mp4")
+                            for i, fname in enumerate(sorted(f for f in os.listdir(vis_step_dir) if f.endswith(".mp4")))
+                        },
+                    }, step=global_step)
 
             # ---- checkpoint ----
             if global_step % args.save_interval == 0:
