@@ -16,6 +16,4 @@ export HOME=/iris/u/marcelto
 eval "$(/iris/u/marcelto/miniconda3/bin/conda shell.bash hook)"
 source .venv/bin/activate
 
-python main.py --stride 8 --seq_len 14 --img_size 128 --batch_size 32 --epochs 200 --embed_dim 128 --vis_interval 1 --save_interval 10
-python main.py --stride 8 --seq_len 14 --img_size 128 --batch_size 16 --epochs 200 --embed_dim 128 --vis_interval 1 --save_interval 10
-python main.py --stride 8 --seq_len 14 --img_size 128 --batch_size 8 --epochs 200 --embed_dim 128 --vis_interval 1 --save_interval 10
+python infer.py --ckpt exp/2026-04-13_14-50-22/checkpoints/step000070.pt --preferences_dir preferences

@@ -298,24 +298,31 @@ def main():
                 print(f"  [Vis/Val] Step {global_step:5d} | Loss {val_loss_vis:.4f} | Mean acc {mean_val_acc_vis:.3f} | {acc_str_vis}")
 
                 vis_step_dir = os.path.join(vis_dir, f"step{global_step:06d}")
-                n_vis = visualize_validation_batch(
+                n_vis_val = visualize_validation_batch(
                     model, val_ds, device,
-                    out_dir=vis_step_dir,
+                    out_dir=os.path.join(vis_step_dir, "val"),
                     preference_keys=preference_keys,
                     max_samples=args.max_vis_samples,
                     step=global_step,
                 )
-                print(f"  [Vis] Saved {n_vis} validation figures → {vis_step_dir}")
+                n_vis_train = visualize_validation_batch(
+                    model, train_ds, device,
+                    out_dir=os.path.join(vis_step_dir, "train"),
+                    preference_keys=preference_keys,
+                    max_samples=args.max_vis_samples,
+                    step=global_step,
+                )
+                print(f"  [Vis] Saved {n_vis_val} val + {n_vis_train} train figures → {vis_step_dir}")
 
                 if use_wandb:
+                    val_mp4s = sorted(f for f in os.listdir(os.path.join(vis_step_dir, "val")) if f.endswith(".mp4"))
+                    train_mp4s = sorted(f for f in os.listdir(os.path.join(vis_step_dir, "train")) if f.endswith(".mp4"))
                     wandb.log({
                         "val/loss": val_loss_vis,
                         "val/acc_mean": float(mean_val_acc_vis),
                         **{f"val/acc_{k}": float(v) for k, v in zip(preference_keys, val_acc_vis)},
-                        **{
-                            f"val/video_{i}": wandb.Video(os.path.join(vis_step_dir, fname), format="mp4")
-                            for i, fname in enumerate(sorted(f for f in os.listdir(vis_step_dir) if f.endswith(".mp4")))
-                        },
+                        **{f"val/video_{i}": wandb.Video(os.path.join(vis_step_dir, "val", f), format="mp4") for i, f in enumerate(val_mp4s)},
+                        **{f"train/video_{i}": wandb.Video(os.path.join(vis_step_dir, "train", f), format="mp4") for i, f in enumerate(train_mp4s)},
                     }, step=global_step)
 
             # ---- checkpoint ----
@@ -344,9 +351,16 @@ def main():
     # Final visualizations
     visualize_validation_batch(
         model, val_ds, device,
-        out_dir=os.path.join(vis_dir, "final"),
+        out_dir=os.path.join(vis_dir, "final", "val"),
         preference_keys=preference_keys,
         max_samples=len(val_ds),
+        step=global_step,
+    )
+    visualize_validation_batch(
+        model, train_ds, device,
+        out_dir=os.path.join(vis_dir, "final", "train"),
+        preference_keys=preference_keys,
+        max_samples=args.max_vis_samples,
         step=global_step,
     )
 
