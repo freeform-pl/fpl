@@ -16,4 +16,4 @@ export HOME=/iris/u/marcelto
 eval "$(/iris/u/marcelto/miniconda3/bin/conda shell.bash hook)"
 source .venv/bin/activate
 
-python infer.py --ckpt exp/2026-04-13_14-50-22/checkpoints/step000070.pt --preferences_dir preferences
+python infer.py --ckpt exp/2026-04-13_14-50-22/checkpoints/step000070.pt --preferences_dir preferences_2026_04_14

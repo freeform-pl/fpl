@@ -34,7 +34,7 @@ class FrameEncoder(nn.Module):
         super().__init__()
 
         if backbone == "resnet18":
-            net = tv_models.resnet18(weights=None)
+            net = tv_models.resnet18(weights=tv_models.ResNet18_Weights.DEFAULT)
             feature_dim = net.fc.in_features  # 512
             net.fc = nn.Identity()
             self.backbone = net
@@ -112,11 +112,14 @@ class RewardModel(nn.Module):
         ffn_dim: int = 512,
         dropout: float = 0.1,
         backbone: str = "resnet18",
+        reward_sigmoid: bool = False,
+        frozen_backbone: bool = False,
     ):
         super().__init__()
         assert embed_dim % num_heads == 0
+        self.reward_sigmoid = reward_sigmoid
 
-        self.frame_encoder = FrameEncoder(embed_dim=embed_dim, backbone=backbone)
+        self.frame_encoder = FrameEncoder(embed_dim=embed_dim, backbone=backbone, frozen_backbone=frozen_backbone)
         self.pos_enc = SinusoidalPositionalEncoding(embed_dim=embed_dim, dropout=dropout)
 
         # CLS token (one per preference dimension)
@@ -137,13 +140,14 @@ class RewardModel(nn.Module):
             nn.Linear(embed_dim, 1) for _ in range(num_preferences)
         ])
 
-    def encode_trajectory(self, third_person: torch.Tensor, wrist: torch.Tensor) -> torch.Tensor:
+    def forward(self, third_person: torch.Tensor, wrist: torch.Tensor, padding_mask: torch.Tensor = None) -> torch.Tensor:
         """
         Encode a full trajectory into K reward scalars.
 
         Args:
-            third_person: (B, T, 3, H, W)
-            wrist:        (B, T, 3, H, W)
+            third_person:  (B, T, 3, H, W)
+            wrist:         (B, T, 3, H, W)
+            padding_mask:  (B, T) bool — True = padded frame (ignored by attention)
         Returns:
             rewards: (B, K)
         """
@@ -163,32 +167,114 @@ class RewardModel(nn.Module):
         cls = self.cls_tokens.expand(B, -1, -1)  # (B, K, embed_dim)
         seq = torch.cat([cls, frame_embs], dim=1)  # (B, K+T, embed_dim)
 
-        # Transformer
-        out = self.transformer(seq)  # (B, K+T, embed_dim)
+        # Build src_key_padding_mask: CLS tokens are never masked
+        key_padding_mask = None
+        if padding_mask is not None:
+            cls_mask = torch.zeros(B, K, dtype=torch.bool, device=padding_mask.device)
+            key_padding_mask = torch.cat([cls_mask, padding_mask], dim=1)  # (B, K+T)
 
-        # Extract CLS token outputs → rewards in [0, 1]
+        # Transformer
+        out = self.transformer(seq, src_key_padding_mask=key_padding_mask)  # (B, K+T, embed_dim)
+
+        # Extract CLS token outputs → reward scalars
         cls_out = out[:, :K]  # (B, K, embed_dim)
-        rewards = torch.sigmoid(torch.stack(
+
+        rewards = torch.stack(
             [head(cls_out[:, i]).squeeze(-1) for i, head in enumerate(self.reward_heads)],
             dim=-1,
-        ))  # (B, K)
+        )  # (B, K)
+
+        if self.reward_sigmoid:
+            rewards = torch.sigmoid(rewards)
         return rewards
 
-    def forward(
+
+
+
+# ---------------------------------------------------------------------------
+# Discounted reward model
+# ---------------------------------------------------------------------------
+
+class DiscountedRewardModel(nn.Module):
+    """
+    Scores each frame independently and sums with a discount factor gamma.
+
+    Architecture:
+        1. FrameEncoder: (third_person, wrist) → embedding  (same as RewardModel)
+        2. Per-frame reward heads: embedding → K scalars in [0, 1]
+        3. Trajectory reward: sum_t( gamma^t * r_t )  (not normalised)
+
+    The discount weights are built once and cached; they resize automatically
+    if a longer sequence is seen at inference time.
+    """
+
+    def __init__(
         self,
-        third_person_a: torch.Tensor,
-        wrist_a: torch.Tensor,
-        third_person_b: torch.Tensor,
-        wrist_b: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        num_preferences: int = 5,
+        embed_dim: int = 256,
+        gamma: float = 0.99,
+        dropout: float = 0.1,
+        backbone: str = "resnet18",
+        reward_sigmoid: bool = False,
+        frozen_backbone: bool = False,
+    ):
+        super().__init__()
+        self.gamma = gamma
+        self.reward_sigmoid = reward_sigmoid
+
+        self.frame_encoder = FrameEncoder(embed_dim=embed_dim, backbone=backbone, frozen_backbone=frozen_backbone)
+        self.dropout = nn.Dropout(p=dropout)
+
+        # Separate reward head per preference (frame-level)
+        self.reward_heads = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(embed_dim, embed_dim // 2),
+                nn.ReLU(),
+                nn.Linear(embed_dim // 2, 1),
+            )
+            for _ in range(num_preferences)
+        ])
+
+    def _discount_weights(self, T: int, device: torch.device) -> torch.Tensor:
+        """Return (T,) tensor of [gamma^(T-1), ..., gamma^1, gamma^0].
+        The last frame (t=T-1) gets weight 1, earlier frames are discounted."""
+        t = torch.arange(T - 1, -1, -1, dtype=torch.float32, device=device)
+        return self.gamma ** t
+
+    def forward(self, third_person: torch.Tensor, wrist: torch.Tensor, padding_mask: torch.Tensor = None) -> torch.Tensor:
         """
+        Args:
+            third_person:  (B, T, 3, H, W)
+            wrist:         (B, T, 3, H, W)
+            padding_mask:  (B, T) bool — True = padded frame (excluded from sum)
         Returns:
-            rewards_a: (B, K)
-            rewards_b: (B, K)
+            rewards: (B, K)  — discounted sum of per-frame rewards
         """
-        r_a = self.encode_trajectory(third_person_a, wrist_a)
-        r_b = self.encode_trajectory(third_person_b, wrist_b)
-        return r_a, r_b
+        B, T = third_person.shape[:2]
+
+        # Encode all frames independently
+        tp_flat = third_person.flatten(0, 1)   # (B*T, 3, H, W)
+        wr_flat = wrist.flatten(0, 1)
+        emb = self.frame_encoder(tp_flat, wr_flat)  # (B*T, embed_dim)
+        emb = emb.view(B, T, -1)                    # (B, T, embed_dim)
+
+        # Per-frame rewards: (B, T, K)
+        frame_rewards = torch.stack(
+            [head(emb).squeeze(-1) for head in self.reward_heads],
+            dim=-1,
+        )  # (B, T, K)
+
+        # Zero out padded frames before discounted sum
+        if padding_mask is not None:
+            frame_rewards = frame_rewards.masked_fill(padding_mask.unsqueeze(-1), 0.0)
+
+        # Discounted sum over time: (B, K)
+        weights = self._discount_weights(T, third_person.device)  # (T,)
+        rewards = (frame_rewards * weights.unsqueeze(0).unsqueeze(-1)).sum(dim=1)  # (B, K)
+
+        if self.reward_sigmoid:
+            rewards = torch.sigmoid(rewards)
+        return rewards
 
 
 # ---------------------------------------------------------------------------
@@ -214,8 +300,8 @@ def bradley_terry_loss(
         loss:         scalar
         per_dim_acc:  (K,) accuracy per preference dimension
     """
-    # P(A > B) = r_A / (r_A + r_B)  — rewards are in [0, 1] via sigmoid
-    prob_a = rewards_a / (rewards_a + rewards_b + 1e-8)  # (B, K)
+    # P(A > B) = sigmoid(r_A - r_B) — standard Bradley-Terry, works for any reward scale
+    prob_a = torch.sigmoid(rewards_a - rewards_b)  # (B, K)
 
     # Build per-sample mask
     is_a = (labels == 1.0)
@@ -250,7 +336,8 @@ def bradley_terry_loss(
         pred_a_wins = (prob_a > 0.5)  # (B, K)
         correct_a = (pred_a_wins & is_a)
         correct_b = (~pred_a_wins & is_b)
-        labeled = (is_a | is_b).float()  # ignore Equal for accuracy
-        per_dim_acc = (correct_a | correct_b).float().sum(0) / labeled.sum(0).clamp(min=1)
+        per_dim_correct = (correct_a | correct_b).float().sum(0)  # (K,)
+        per_dim_labeled = (is_a | is_b).float().sum(0)            # (K,)
 
-    return loss, per_dim_acc
+    return loss, per_dim_correct, per_dim_labeled
+

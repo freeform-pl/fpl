@@ -54,23 +54,28 @@ def visualize_validation_batch(
             labels = item["labels"]  # (K,)
             gt_vals = labels.numpy()
 
-            # (T, 3, H, W) uint8
+            # (T, 3, H, W) uint8 — kept as-is for display; normalized separately for model
             tp_a_frames = item["traj_a"]["third_person"]
             wr_a_frames = item["traj_a"]["wrist"]
             tp_b_frames = item["traj_b"]["third_person"]
             wr_b_frames = item["traj_b"]["wrist"]
             T = tp_a_frames.shape[0]
 
-            # Model forward
-            tp_a = tp_a_frames.unsqueeze(0).to(device).float() / 255.0
-            wr_a = wr_a_frames.unsqueeze(0).to(device).float() / 255.0
-            tp_b = tp_b_frames.unsqueeze(0).to(device).float() / 255.0
-            wr_b = wr_b_frames.unsqueeze(0).to(device).float() / 255.0
+            # Model forward — ImageNet normalization to match pretrained backbone
+            _mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 1, 3, 1, 1)
+            _std  = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 1, 3, 1, 1)
 
-            r_a, r_b = model(tp_a, wr_a, tp_b, wr_b)
+            def _norm(t):
+                return (t.unsqueeze(0).to(device).float() / 255.0 - _mean) / _std
+
+            mask_a = item["traj_a"]["padding_mask"].unsqueeze(0).to(device)
+            mask_b = item["traj_b"]["padding_mask"].unsqueeze(0).to(device)
+
+            r_a = model(_norm(tp_a_frames), _norm(wr_a_frames), mask_a)
+            r_b = model(_norm(tp_b_frames), _norm(wr_b_frames), mask_b)
             r_a_np = r_a.squeeze(0).cpu().numpy()   # (K,)
             r_b_np = r_b.squeeze(0).cpu().numpy()   # (K,)
-            prob_a = r_a_np / (r_a_np + r_b_np + 1e-8)  # (K,)
+            prob_a = 1.0 / (1.0 + np.exp(-(r_a_np - r_b_np)))  # sigmoid(r_A - r_B)
 
             # ----------------------------------------------------------------
             # Build figure layout:
@@ -103,37 +108,41 @@ def visualize_validation_batch(
 
             # ---- bar chart (static, drawn once) ----
             x = np.arange(K)
-            width = 0.2
+            width = 0.25
 
-            bars_ra  = ax_bar.bar(x - 1.5 * width, r_a_np,  width, label="r_A",      color="steelblue",  alpha=0.85)
-            bars_rb  = ax_bar.bar(x - 0.5 * width, r_b_np,  width, label="r_B",      color="darkorange",  alpha=0.85)
-            bars_pa  = ax_bar.bar(x + 0.5 * width, prob_a,  width, label="P(A>B)",   color="mediumseagreen", alpha=0.85)
-            bars_gt  = ax_bar.bar(x + 1.5 * width, gt_vals, width, label="GT",       color="gray",        alpha=0.6)
+            bars_ra = ax_bar.bar(x - width, r_a_np, width, label="r_A", color="steelblue",   alpha=0.85)
+            bars_rb = ax_bar.bar(x,          r_b_np, width, label="r_B", color="darkorange",  alpha=0.85)
+            bars_pa = ax_bar.bar(x + width,  prob_a, width, label="P(A>B)", color="gray",     alpha=0.6)
 
-            # Color GT bars by label meaning
-            for bar, val in zip(bars_gt, gt_vals):
-                bar.set_facecolor("steelblue" if val == 1.0 else "firebrick" if val == 0.0 else "gray")
+            # Color P(A>B) bar green=correct, red=wrong, gray=Equal GT
+            pred_label = ["A" if p > 0.5 else ("B" if p < 0.5 else "=") for p in prob_a]
+            gt_label   = ["A" if v == 1.0 else ("B" if v == 0.0 else "=") for v in gt_vals]
+            for bar, pred, gt in zip(bars_pa, pred_label, gt_label):
+                if gt == "=":
+                    bar.set_facecolor("gray")
+                elif pred == gt:
+                    bar.set_facecolor("mediumseagreen")
+                else:
+                    bar.set_facecolor("firebrick")
 
             ax_bar.set_xticks(x)
             ax_bar.set_xticklabels(preference_keys, fontsize=9)
-            ax_bar.set_ylim(0, 1.15)
+            all_vals = np.concatenate([r_a_np, r_b_np, prob_a])
+            ax_bar.set_ylim(min(0, all_vals.min() - 0.1), all_vals.max() + 0.2)
             ax_bar.axhline(0.5, color="gray", linestyle="--", linewidth=0.7)
             ax_bar.set_ylabel("Score / Probability")
-            ax_bar.set_title(
-                "Raw rewards and preference probabilities  "
-                "(GT: blue=A preferred, red=B preferred, gray=Equal)",
-                fontsize=8,
-            )
+            ax_bar.set_title("Rewards and P(A>B)  |  P(A>B) bar: green=correct, red=wrong", fontsize=8)
 
             legend_patches = [
-                mpatches.Patch(color="steelblue",     label="r_A  (raw reward A)"),
-                mpatches.Patch(color="darkorange",    label="r_B  (raw reward B)"),
-                mpatches.Patch(color="mediumseagreen",label="P(A>B) = r_A/(r_A+r_B)"),
-                mpatches.Patch(color="gray",          label="Ground truth"),
+                mpatches.Patch(color="steelblue",      label="r_A"),
+                mpatches.Patch(color="darkorange",     label="r_B"),
+                mpatches.Patch(color="mediumseagreen", label="P(A>B) — correct"),
+                mpatches.Patch(color="firebrick",      label="P(A>B) — wrong"),
+                mpatches.Patch(color="gray",           label="P(A>B) — GT Equal"),
             ]
             ax_bar.legend(handles=legend_patches, fontsize=7, loc="upper right")
 
-            # Add value labels on bars
+            # Value labels + GT/Pred text per dimension
             for bars in [bars_ra, bars_rb, bars_pa]:
                 for bar in bars:
                     h = bar.get_height()
@@ -141,6 +150,14 @@ def visualize_validation_batch(
                         bar.get_x() + bar.get_width() / 2, h + 0.01,
                         f"{h:.2f}", ha="center", va="bottom", fontsize=6,
                     )
+            for i, (pred, gt) in enumerate(zip(pred_label, gt_label)):
+                correct = (pred == gt) if gt != "=" else None
+                color = "darkgreen" if correct else ("firebrick" if correct is False else "gray")
+                ax_bar.text(
+                    x[i], 1.22,
+                    f"GT: {gt}  Pred: {pred}",
+                    ha="center", va="bottom", fontsize=8, fontweight="bold", color=color,
+                )
 
             # ---- animation ----
             frame_label = ax_tp_a.text(
@@ -164,6 +181,94 @@ def visualize_validation_batch(
 
     model.train()
     return n
+
+
+def visualize_top_bottom_trajectories(
+    model: torch.nn.Module,
+    dataset,
+    device: torch.device,
+    out_dir: str,
+    preference_keys: list,
+    n: int = 5,
+    step: int = 0,
+    fps: int = 10,
+):
+    """
+    For each preference dimension, collect rewards for every individual trajectory
+    in the dataset, then save one video per dimension showing the top-n and bottom-n
+    trajectories side by side (top row / bottom row).
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    model.eval()
+    K = len(preference_keys)
+
+    _mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 1, 3, 1, 1)
+    _std  = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 1, 3, 1, 1)
+
+    def _norm(t):
+        return (t.unsqueeze(0).to(device).float() / 255.0 - _mean) / _std
+
+    # Collect (tp_frames, reward_vector) for every individual trajectory
+    entries = []  # list of {"frames": (T,H,W,3) uint8 numpy, "reward": (K,) float}
+    with torch.no_grad():
+        for idx in range(len(dataset)):
+            item = dataset[idx]
+            for traj_key in ("traj_a", "traj_b"):
+                tp_frames = item[traj_key]["third_person"]   # (T, 3, H, W) uint8
+                wr_frames = item[traj_key]["wrist"]
+                mask = item[traj_key]["padding_mask"].unsqueeze(0).to(device)
+                r = model(_norm(tp_frames), _norm(wr_frames), mask).squeeze(0).cpu().numpy()  # (K,)
+                entries.append({
+                    "frames": tp_frames.permute(0, 2, 3, 1).numpy(),  # (T, H, W, 3)
+                    "reward": r,
+                })
+
+    rewards_all = np.stack([e["reward"] for e in entries])  # (N, K)
+
+    for k, key in enumerate(preference_keys):
+        sorted_idx = np.argsort(rewards_all[:, k])
+        bottom_idx = sorted_idx[:n]
+        top_idx    = sorted_idx[-n:][::-1]
+
+        top_entries    = [entries[i] for i in top_idx]
+        bottom_entries = [entries[i] for i in bottom_idx]
+
+        T = top_entries[0]["frames"].shape[0]
+        fig, axes = plt.subplots(2, n, figsize=(3 * n, 7))
+        fig.suptitle(f"[step {step}]  {key}  —  top {n} (high reward) vs bottom {n} (low reward)", fontsize=11)
+
+        for col, entry in enumerate(top_entries):
+            axes[0, col].set_title(f"r={entry['reward'][k]:.2f}", fontsize=8, color="darkgreen")
+            axes[0, col].axis("off")
+        for col, entry in enumerate(bottom_entries):
+            axes[1, col].set_title(f"r={entry['reward'][k]:.2f}", fontsize=8, color="firebrick")
+            axes[1, col].axis("off")
+
+        axes[0, 0].set_ylabel("High reward", fontsize=8)
+        axes[1, 0].set_ylabel("Low reward",  fontsize=8)
+
+        ims = []
+        for col, entry in enumerate(top_entries):
+            ims.append(axes[0, col].imshow(top_entries[col]["frames"][0]))
+        for col, entry in enumerate(bottom_entries):
+            ims.append(axes[1, col].imshow(bottom_entries[col]["frames"][0]))
+
+        def update(t, ims=ims, top_entries=top_entries, bottom_entries=bottom_entries):
+            for col in range(n):
+                frame_t = min(t, top_entries[col]["frames"].shape[0] - 1)
+                ims[col].set_data(top_entries[col]["frames"][frame_t])
+            for col in range(n):
+                frame_t = min(t, bottom_entries[col]["frames"].shape[0] - 1)
+                ims[n + col].set_data(bottom_entries[col]["frames"][frame_t])
+            return ims
+
+        anim = FuncAnimation(fig, update, frames=T, interval=1000 // fps, blit=True)
+        fname = os.path.join(out_dir, f"step{step:06d}_top_bottom_{key}.mp4")
+        anim.save(fname, writer=FFMpegWriter(fps=fps))
+        plt.close(fig)
+
+    model.train()
+    return [os.path.join(out_dir, f"step{step:06d}_top_bottom_{k}.mp4") for k in preference_keys]
 
 
 def plot_training_curves(

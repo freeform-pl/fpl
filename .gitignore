@@ -1,6 +1,7 @@
-preferences/
+preferences*
 exp
 .venv
 .claude
 wandb
 slurm/
+__pycache__
