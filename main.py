@@ -24,7 +24,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from dataset import make_datasets, print_dataset_stats
-from model import RewardModel, DiscountedRewardModel, bradley_terry_loss
+from model import RewardModel, DiscountedRewardModel, bradley_terry_loss, bradley_terry_loss_regression
+from flow_model import RewardModel as FlowRewardModel
 from tasks import TASKS
 from visualization import visualize_validation_batch, visualize_top_bottom_trajectories, plot_training_curves
 
@@ -45,10 +46,12 @@ def parse_args():
                    help="Resize each frame to (img_size x img_size) when loading from video fallback")
     p.add_argument("--preload", action="store_true",
                    help="Preload all data into RAM at startup")
+    p.add_argument("--preload_offsets", type=int, default=5,
+                   help="Number of temporal offsets to preload per trajectory pair (only used with --preload)")
 
     # Model
-    p.add_argument("--model", default="transformer", choices=["transformer", "discounted"],
-                   help="Model architecture: transformer (default) or discounted (per-frame + gamma sum)")
+    p.add_argument("--model", default="transformer", choices=["transformer", "discounted", "flow"],
+                   help="Model architecture: transformer, discounted, or flow (flow matching)")
     p.add_argument("--embed_dim", type=int, default=256)
     p.add_argument("--num_heads", type=int, default=8)
     p.add_argument("--num_layers", type=int, default=4)
@@ -61,8 +64,18 @@ def parse_args():
                    help="LR multiplier for backbone params (e.g. 0.1 for 10x smaller backbone lr)")
     p.add_argument("--gamma", type=float, default=0.99,
                    help="Discount factor for --model discounted")
+    p.add_argument("--n_sample_steps", type=int, default=10,
+                   help="ODE integration steps for --model flow")
+    p.add_argument("--n_samples", type=int, default=10,
+                   help="Number of samples to average for --model flow reward estimate")
     p.add_argument("--reward_sigmoid", action="store_true",
                    help="Apply sigmoid to reward outputs (maps to [0,1]); default is unbounded rewards")
+    p.add_argument("--ptp", action="store_true",
+                   help="Past token prediction: auxiliary flow matching loss for action chunk prediction (flow model only)")
+    p.add_argument("--action_chunk_size", type=int, default=16,
+                   help="Number of action steps per chunk for PTP")
+    p.add_argument("--action_weight", type=float, default=1.0,
+                   help="Weight for PTP action loss relative to BT loss")
 
     # Training
     p.add_argument("--lr", type=float, default=1e-4)
@@ -71,6 +84,8 @@ def parse_args():
     p.add_argument("--epochs", type=int, default=100)
     p.add_argument("--equal_weight", type=float, default=0.0,
                    help="Loss weight for Equal-labeled samples (0 = skip)")
+    p.add_argument("--regression", action="store_true",
+                   help="Use MSE regression to 0/1 targets instead of Bradley-Terry cross-entropy (non-flow models)")
 
     # Logging / saving
     p.add_argument("--out_dir", default="exp/")
@@ -97,16 +112,22 @@ def set_seed(seed: int):
     torch.manual_seed(seed)
 
 
-_imagenet_mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 1, 3, 1, 1)
-_imagenet_std  = torch.tensor([0.229, 0.224, 0.225]).view(1, 1, 3, 1, 1)
 
-
-def normalize(x: torch.Tensor) -> torch.Tensor:
-    """Convert uint8 images (B, T, 3, H, W) to ImageNet-normalized float32."""
-    x = x.float() / 255.0
-    mean = _imagenet_mean.to(x.device)
-    std  = _imagenet_std.to(x.device)
-    return (x - mean) / std
+def make_obs(traj: dict, device: torch.device, augment: bool = False) -> dict:
+    """Move trajectory tensors to device and optionally augment images."""
+    tp = traj["third_person"].to(device)
+    wr = traj["wrist"].to(device)
+    if augment:
+        # augment_traj expects float [0,1]
+        tp = augment_traj(tp.float() / 255.0)
+        wr = augment_traj(wr.float() / 255.0)
+    obs = {
+        "third_person": tp,
+        "wrist": wr,
+        "padding_mask": traj["padding_mask"].to(device),
+        "proprio": traj["proprio"].to(device),
+    }
+    return obs
 
 
 _augment = T.Compose([
@@ -129,25 +150,42 @@ def augment_traj(x: torch.Tensor) -> torch.Tensor:
 
 
 @torch.no_grad()
-def evaluate(model, val_loader, device, equal_weight, num_preferences):
+def evaluate(model, val_loader, device, equal_weight, num_preferences, action_weight=0.0, regression=False):
     model.eval()
     total_loss = 0.0
     total_correct = torch.zeros(num_preferences)
     total_labeled = torch.zeros(num_preferences)
     n_batches = 0
+    is_flow = isinstance(model, FlowRewardModel)
 
     for batch in val_loader:
-        tp_a = normalize(batch["traj_a"]["third_person"].to(device))
-        wr_a = normalize(batch["traj_a"]["wrist"].to(device))
-        tp_b = normalize(batch["traj_b"]["third_person"].to(device))
-        wr_b = normalize(batch["traj_b"]["wrist"].to(device))
         labels = batch["labels"].to(device)
-        mask_a = batch["traj_a"]["padding_mask"].to(device)
-        mask_b = batch["traj_b"]["padding_mask"].to(device)
 
-        r_a = model(tp_a, wr_a, mask_a)
-        r_b = model(tp_b, wr_b, mask_b)
-        loss, per_dim_correct, per_dim_labeled = bradley_terry_loss(r_a, r_b, labels, equal_weight)
+        if is_flow:
+            obs_a = make_obs(batch["traj_a"], device)
+            obs_b = make_obs(batch["traj_b"], device)
+            cls_a, frame_tokens_a = model.encode(obs_a)
+            cls_b, frame_tokens_b = model.encode(obs_b)
+            loss, per_dim_correct, per_dim_labeled = model.bradley_terry_flow_matching_loss(cls_a, cls_b, labels)
+            if action_weight > 0 and model.ptp and "action_chunks" in batch["traj_a"]:
+                action_loss = model.action_flow_loss(
+                    frame_tokens_a, batch["traj_a"]["action_chunks"].to(device), obs_a["padding_mask"],
+                    frame_tokens_b, batch["traj_b"]["action_chunks"].to(device), obs_b["padding_mask"],
+                )
+                loss = loss + action_weight * action_loss
+        else:
+            tp_a = batch["traj_a"]["third_person"].to(device)
+            wr_a = batch["traj_a"]["wrist"].to(device)
+            tp_b = batch["traj_b"]["third_person"].to(device)
+            wr_b = batch["traj_b"]["wrist"].to(device)
+            mask_a = batch["traj_a"]["padding_mask"].to(device)
+            mask_b = batch["traj_b"]["padding_mask"].to(device)
+            r_a = model(tp_a, wr_a, mask_a)
+            r_b = model(tp_b, wr_b, mask_b)
+            if regression:
+                loss, per_dim_correct, per_dim_labeled = bradley_terry_loss_regression(r_a, r_b, labels)
+            else:
+                loss, per_dim_correct, per_dim_labeled = bradley_terry_loss(r_a, r_b, labels, equal_weight)
 
         total_loss += loss.item()
         total_correct += per_dim_correct.cpu()
@@ -203,6 +241,8 @@ def main():
         img_size=(args.img_size, args.img_size),
         seed=args.seed,
         preload=args.preload,
+        action_chunk_size=args.action_chunk_size if args.ptp else 0,
+        preload_offsets=args.preload_offsets,
     )
 
     print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}")
@@ -225,7 +265,22 @@ def main():
     # ------------------------------------------------------------------ #
     # Model
     # ------------------------------------------------------------------ #
-    if args.model == "discounted":
+    if args.model == "flow":
+        model = FlowRewardModel(
+            num_preferences=len(preference_keys),
+            embed_dim=args.embed_dim,
+            num_heads=args.num_heads,
+            num_layers=args.num_layers,
+            ffn_dim=args.ffn_dim,
+            dropout=args.dropout,
+            backbone=args.backbone,
+            frozen_backbone=args.freeze_backbone,
+            n_sample_steps=args.n_sample_steps,
+            n_samples=args.n_samples,
+            ptp=args.ptp,
+            action_chunk_size=args.action_chunk_size,
+        ).to(device)
+    elif args.model == "discounted":
         model = DiscountedRewardModel(
             num_preferences=len(preference_keys),
             embed_dim=args.embed_dim,
@@ -276,7 +331,7 @@ def main():
     global_step = 0
 
     # ---- pre-training baseline ----
-    val_loss, val_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys))
+    val_loss, val_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
     val_losses.append(val_loss)
     val_accs.append(val_acc.tolist())
     acc_str = " | ".join(f"{k}: {v:.2f}" for k, v in zip(preference_keys, val_acc))
@@ -289,23 +344,48 @@ def main():
             t_data = time.perf_counter() - t_data_end
 
             t0 = time.perf_counter()
-            tp_a = augment_traj(normalize(batch["traj_a"]["third_person"].to(device)))
-            wr_a = augment_traj(normalize(batch["traj_a"]["wrist"].to(device)))
-            tp_b = augment_traj(normalize(batch["traj_b"]["third_person"].to(device)))
-            wr_b = augment_traj(normalize(batch["traj_b"]["wrist"].to(device)))
             labels = batch["labels"].to(device)
-            mask_a = batch["traj_a"]["padding_mask"].to(device)
-            mask_b = batch["traj_b"]["padding_mask"].to(device)
             t_transfer = time.perf_counter() - t0
 
             t0 = time.perf_counter()
             optimizer.zero_grad()
-            r_a = model(tp_a, wr_a, mask_a)
-            r_b = model(tp_b, wr_b, mask_b)
-            t_forward = time.perf_counter() - t0
-
-            t0 = time.perf_counter()
-            loss, per_dim_correct, per_dim_labeled = bradley_terry_loss(r_a, r_b, labels, args.equal_weight)
+            if isinstance(model, FlowRewardModel):
+                obs_a = make_obs(batch["traj_a"], device, augment=True)
+                obs_b = make_obs(batch["traj_b"], device, augment=True)
+                t_transfer = time.perf_counter() - t0
+                t0 = time.perf_counter()
+                cls_a, frame_tokens_a = model.encode(obs_a)
+                cls_b, frame_tokens_b = model.encode(obs_b)
+                t_forward = time.perf_counter() - t0
+                t0 = time.perf_counter()
+                loss, per_dim_correct, per_dim_labeled = model.bradley_terry_flow_matching_loss(cls_a, cls_b, labels)
+                if args.ptp:
+                    action_chunks_a = batch["traj_a"]["action_chunks"].to(device)
+                    action_chunks_b = batch["traj_b"]["action_chunks"].to(device)
+                    mask_a = obs_a["padding_mask"]
+                    mask_b = obs_b["padding_mask"]
+                    action_loss = model.action_flow_loss(
+                        frame_tokens_a, action_chunks_a, mask_a,
+                        frame_tokens_b, action_chunks_b, mask_b,
+                    )
+                    loss = loss + args.action_weight * action_loss
+            else:
+                tp_a = augment_traj(batch["traj_a"]["third_person"].to(device).float() / 255.0)
+                wr_a = augment_traj(batch["traj_a"]["wrist"].to(device).float() / 255.0)
+                tp_b = augment_traj(batch["traj_b"]["third_person"].to(device).float() / 255.0)
+                wr_b = augment_traj(batch["traj_b"]["wrist"].to(device).float() / 255.0)
+                mask_a = batch["traj_a"]["padding_mask"].to(device)
+                mask_b = batch["traj_b"]["padding_mask"].to(device)
+                t_transfer = time.perf_counter() - t0
+                t0 = time.perf_counter()
+                r_a = model(tp_a, wr_a, mask_a)
+                r_b = model(tp_b, wr_b, mask_b)
+                t_forward = time.perf_counter() - t0
+                t0 = time.perf_counter()
+                if args.regression:
+                    loss, per_dim_correct, per_dim_labeled = bradley_terry_loss_regression(r_a, r_b, labels)
+                else:
+                    loss, per_dim_correct, per_dim_labeled = bradley_terry_loss(r_a, r_b, labels, args.equal_weight)
             per_dim_acc = per_dim_correct / per_dim_labeled.clamp(min=1)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -336,16 +416,19 @@ def main():
                         "timing/backward": t_backward,
                     }, step=global_step)
                 if use_wandb:
-                    wandb.log({
+                    log_dict = {
                         "train/loss": loss.item(),
                         "train/acc_mean": mean_acc,
                         "train/lr": scheduler.get_last_lr()[0],
                         **{f"train/acc_{k}": v for k, v in zip(preference_keys, per_dim_acc.cpu().numpy())},
-                    }, step=global_step)
+                    }
+                    if args.ptp and isinstance(model, FlowRewardModel):
+                        log_dict["train/action_loss"] = action_loss.item()
+                    wandb.log(log_dict, step=global_step)
 
             # ---- validation ----
             if global_step % args.eval_interval == 0:
-                val_loss, val_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys))
+                val_loss, val_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
                 val_losses.append(val_loss)
                 val_accs.append(val_acc.tolist())
                 mean_val_acc = val_acc.mean()
@@ -363,7 +446,7 @@ def main():
 
             # ---- visualization + wandb val logging ----
             if global_step % args.vis_interval == 0:
-                val_loss_vis, val_acc_vis = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys))
+                val_loss_vis, val_acc_vis = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
                 mean_val_acc_vis = val_acc_vis.mean()
                 acc_str_vis = " | ".join(f"{k}: {v:.2f}" for k, v in zip(preference_keys, val_acc_vis))
                 print(f"  [Vis/Val] Step {global_step:5d} | Loss {val_loss_vis:.4f} | Mean acc {mean_val_acc_vis:.3f} | {acc_str_vis}")
@@ -417,7 +500,7 @@ def main():
                 print(f"  [Ckpt] Saved → {ckpt_path}")
 
     # ---- final eval + curves ----
-    val_loss, val_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys))
+    val_loss, val_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
     print("\nFinal validation:")
     for k, v in zip(preference_keys, val_acc):
         print(f"  {k}: {v:.3f}")

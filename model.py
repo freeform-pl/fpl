@@ -16,6 +16,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as tv_models
 
+_IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+_IMAGENET_STD  = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+
 
 
 # ---------------------------------------------------------------------------
@@ -52,16 +55,24 @@ class FrameEncoder(nn.Module):
             nn.ReLU(),
         )
 
+    def _normalize(self, x: torch.Tensor) -> torch.Tensor:
+        """Convert uint8 or float [0,1] images to ImageNet-normalized float32."""
+        if x.dtype == torch.uint8:
+            x = x.float() / 255.0
+        mean = _IMAGENET_MEAN.to(x.device)
+        std  = _IMAGENET_STD.to(x.device)
+        return (x - mean) / std
+
     def forward(self, third_person: torch.Tensor, wrist: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            third_person: (B, 3, H, W)
-            wrist:        (B, 3, H, W)
+            third_person: (B, 3, H, W) uint8 or float32
+            wrist:        (B, 3, H, W) uint8 or float32
         Returns:
             embedding:    (B, embed_dim)
         """
-        f_tp = self.backbone(third_person)   # (B, feature_dim)
-        f_wr = self.backbone(wrist)          # (B, feature_dim)
+        f_tp = self.backbone(self._normalize(third_person))   # (B, feature_dim)
+        f_wr = self.backbone(self._normalize(wrist))          # (B, feature_dim)
         return self.proj(torch.cat([f_tp, f_wr], dim=-1))
 
 
@@ -341,3 +352,49 @@ def bradley_terry_loss(
 
     return loss, per_dim_correct, per_dim_labeled
 
+
+
+def bradley_terry_loss_regression(
+    rewards_a: torch.Tensor,
+    rewards_b: torch.Tensor,
+    labels: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Regression-based preference loss: MSE to hard targets 0/1.
+
+    For equal pairs, the target for each trajectory is the other's current
+    prediction clipped to [0, 1] (detached), so equal pairs converge toward
+    the same value without a gradient signal pushing either direction.
+
+    Args:
+        rewards_a:  (B, K)
+        rewards_b:  (B, K)
+        labels:     (B, K) — 1.0=A preferred, 0.0=B preferred, 0.5=Equal
+
+    Returns:
+        loss:             scalar
+        per_dim_correct:  (K,) number of correct predictions
+        per_dim_labeled:  (K,) number of labeled (non-equal) pairs
+    """
+    is_a = labels == 1.0
+    is_b = labels == 0.0
+    is_eq = labels == 0.5
+
+    targets_a = torch.zeros_like(rewards_a)
+    targets_a[is_a] = 1.0
+    targets_a[is_b] = -1.0
+    targets_a[is_eq] = rewards_b[is_eq].detach().clamp(-1.0, 1.0)
+
+    targets_b = torch.zeros_like(rewards_b)
+    targets_b[is_b] = 1.0
+    targets_b[is_a] = -1.0
+    targets_b[is_eq] = rewards_a[is_eq].detach().clamp(-1.0, 1.0)
+
+    loss = F.mse_loss(rewards_a, targets_a) + F.mse_loss(rewards_b, targets_b)
+
+    with torch.no_grad():
+        pred_a_wins = rewards_a > rewards_b
+        per_dim_correct = ((pred_a_wins & is_a) | (~pred_a_wins & is_b)).float().sum(0)
+        per_dim_labeled = (is_a | is_b).float().sum(0)
+
+    return loss, per_dim_correct, per_dim_labeled

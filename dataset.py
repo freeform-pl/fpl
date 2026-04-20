@@ -29,7 +29,7 @@ def _resize_frames(frames: np.ndarray, img_size: tuple) -> np.ndarray:
     return np.stack([cv2.resize(f, img_size, interpolation=cv2.INTER_AREA) for f in frames])
 
 
-def _load_from_hdf5(hdf5_path: str, stride: int, seq_len: int, offset: int, img_size: tuple) -> tuple:
+def _load_from_hdf5(hdf5_path: str, stride: int, seq_len: int, offset: int, img_size: tuple, action_chunk_size: int = 0) -> tuple:
     with h5py.File(hdf5_path, "r") as f:
         demo_key = next(iter(f["data"].keys()))
         obs = f[f"data/{demo_key}/obs"]
@@ -38,47 +38,44 @@ def _load_from_hdf5(hdf5_path: str, stride: int, seq_len: int, offset: int, img_
         tp = obs["agent_view"][indices]  # (T, H, W, 3) uint8
         wr = obs["wrist"][indices]
 
+        proprio = obs["JOINT_POS"][indices].astype(np.float32)  # (T, 7)
+
+        action_chunks = None
+        if action_chunk_size > 0:
+            acts_jp = f[f"data/{demo_key}/actions/joint_position"][:]  # (total, 7)
+            acts_gr = f[f"data/{demo_key}/actions/gripper_position"][:]  # (total,) or (total, 1)
+            if acts_gr.ndim == 1:
+                acts_gr = acts_gr[:, np.newaxis]
+            acts = np.concatenate([acts_jp, acts_gr], axis=-1).astype(np.float32)  # (total, 8)
+            action_dim = acts.shape[-1]
+
+            chunks = []
+            for idx in indices:
+                end = idx + action_chunk_size
+                if end <= total:
+                    chunk = acts[idx:end]
+                else:
+                    chunk = acts[idx:]
+                    pad_len = action_chunk_size - len(chunk)
+                    chunk = np.concatenate([chunk, np.zeros((pad_len, action_dim), dtype=chunk.dtype)], axis=0)
+                chunks.append(chunk)
+            action_chunks = np.stack(chunks)  # (n_real, action_chunk_size, action_dim)
+
     n_real = len(indices)
     if n_real < seq_len:
         pad = seq_len - n_real
         tp = np.concatenate([tp, np.zeros((pad, *tp.shape[1:]), dtype=tp.dtype)], axis=0)
         wr = np.concatenate([wr, np.zeros((pad, *wr.shape[1:]), dtype=wr.dtype)], axis=0)
+        proprio = np.concatenate([proprio, np.zeros((pad, proprio.shape[1]), dtype=proprio.dtype)], axis=0)
+        if action_chunks is not None:
+            action_chunks = np.concatenate([
+                action_chunks,
+                np.zeros((pad, action_chunk_size, action_dim), dtype=action_chunks.dtype),
+            ], axis=0)
 
     tp = _resize_frames(tp, img_size)
     wr = _resize_frames(wr, img_size)
-    return tp, wr, n_real
-
-
-# def _load_from_video(video_path: str, stride: int, seq_len: int, img_size: tuple, offset: int) -> tuple:
-#     cap = cv2.VideoCapture(video_path)
-#     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-#     cap.release()
-
-#     indices = _strided_indices(total, stride, seq_len, offset)
-#     target_set = set(indices)
-
-#     cap = cv2.VideoCapture(video_path)
-#     tp_frames, wr_frames = [], []
-#     frame_idx = 0
-#     while True:
-#         ret, frame = cap.read()
-#         if not ret:
-#             break
-#         if frame_idx in target_set:
-#             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-#             half_w = frame.shape[1] // 2
-#             tp = cv2.resize(frame[:, :half_w], img_size, interpolation=cv2.INTER_AREA)
-#             wr = cv2.resize(frame[:, half_w:], img_size, interpolation=cv2.INTER_AREA)
-#             tp_frames.append(tp)
-#             wr_frames.append(wr)
-#         frame_idx += 1
-#     cap.release()
-
-#     while len(tp_frames) < seq_len:
-#         tp_frames.append(tp_frames[-1])
-#         wr_frames.append(wr_frames[-1])
-
-#     return np.stack(tp_frames), np.stack(wr_frames)
+    return tp, wr, proprio, n_real, action_chunks
 
 
 def load_trajectory(
@@ -87,6 +84,7 @@ def load_trajectory(
     seq_len: int,
     img_size: tuple = (128, 128),
     offset: int = 0,
+    action_chunk_size: int = 0,
 ) -> dict[str, torch.Tensor]:
     """
     Load a trajectory as (third_person, wrist) image sequences.
@@ -94,21 +92,27 @@ def load_trajectory(
     Frames are sampled at [offset, offset+stride, offset+2*stride, ...].
     Pass offset in [0, stride-1] to cover all temporal shifts during training.
 
-    Loads from HDF5 if observation/third_person is present (run preprocess.py
-    to populate), otherwise falls back to the alongside .mp4 video.
-
     Returns:
-        third_person: (T, 3, H, W)  uint8  — normalization done at batch time
-        wrist:        (T, 3, H, W)  uint8
+        third_person:   (T, 3, H, W)  uint8
+        wrist:          (T, 3, H, W)  uint8
+        padding_mask:   (T,) bool
+        action_chunks:  (T, action_chunk_size, action_dim) float32  [only if action_chunk_size > 0]
     """
-    tp, wr, n_real = _load_from_hdf5(hdf5_path, stride, seq_len, offset, img_size)
+    tp, wr, proprio, n_real, action_chunks = _load_from_hdf5(hdf5_path, stride, seq_len, offset, img_size, action_chunk_size)
 
-    # (T, H, W, 3) -> (T, 3, H, W)
     tp_t = torch.from_numpy(tp).permute(0, 3, 1, 2)
     wr_t = torch.from_numpy(wr).permute(0, 3, 1, 2)
     padding_mask = torch.zeros(seq_len, dtype=torch.bool)
     padding_mask[n_real:] = True
-    return {"third_person": tp_t, "wrist": wr_t, "padding_mask": padding_mask}
+    result = {
+        "third_person": tp_t,
+        "wrist": wr_t,
+        "proprio": torch.from_numpy(proprio),  # (T, 7)
+        "padding_mask": padding_mask,
+    }
+    if action_chunks is not None:
+        result["action_chunks"] = torch.from_numpy(action_chunks)
+    return result
 
 
 def parse_preference_labels(preferences: dict, preference_keys: list) -> torch.Tensor:
@@ -152,6 +156,8 @@ class PreferenceDataset(Dataset):
         img_size: tuple = (128, 128),
         training: bool = True,
         preload: bool = False,
+        action_chunk_size: int = 0,
+        preload_offsets: int = 5,
     ):
         self.stride = stride
         self.seq_len = seq_len
@@ -159,6 +165,8 @@ class PreferenceDataset(Dataset):
         self.training = training
         self.preload = preload
         self.preference_keys = preference_keys
+        self.action_chunk_size = action_chunk_size
+        self.preload_offsets = preload_offsets
 
         self.samples = []
         for d in preference_dirs:
@@ -170,9 +178,15 @@ class PreferenceDataset(Dataset):
                 continue
 
             try:
-                with h5py.File(hdf5_a, "r") as _fa, h5py.File(hdf5_b, "r") as _fb:
-                    pass
-            except OSError:
+                for path in (hdf5_a, hdf5_b):
+                    with h5py.File(path, "r") as f:
+                        demo_key = next(iter(f["data"].keys()))
+                        _ = f[f"data/{demo_key}/obs/agent_view"].shape
+                        _ = f[f"data/{demo_key}/obs/JOINT_POS"].shape
+                        if action_chunk_size > 0:
+                            _ = f[f"data/{demo_key}/actions/joint_position"].shape
+                            _ = f[f"data/{demo_key}/actions/gripper_position"].shape
+            except (OSError, KeyError):
                 print(f"Skipping corrupted HDF5 in {d}")
                 continue
 
@@ -192,13 +206,12 @@ class PreferenceDataset(Dataset):
             })
 
         if preload:
-            if training:
-                print("Warning: preload=True with training=True fixes the stride offset at load time (no per-epoch augmentation).")
-            print(f"Preloading {len(self.samples)} trajectory pairs...")
+            n_off = preload_offsets if training else 1
+            offsets = [int(i * stride / n_off) for i in range(n_off)]
+            print(f"Preloading {len(self.samples)} trajectory pairs × {n_off} offset(s) {offsets}...")
             for s in self.samples:
-                offset = int(np.random.randint(0, stride)) if training else 0
-                s["traj_a"] = load_trajectory(s["hdf5_a"], stride, seq_len, img_size, offset)
-                s["traj_b"] = load_trajectory(s["hdf5_b"], stride, seq_len, img_size, offset)
+                s["trajs_a"] = [load_trajectory(s["hdf5_a"], stride, seq_len, img_size, o, action_chunk_size) for o in offsets]
+                s["trajs_b"] = [load_trajectory(s["hdf5_b"], stride, seq_len, img_size, o, action_chunk_size) for o in offsets]
 
     def __len__(self):
         return len(self.samples)
@@ -206,12 +219,13 @@ class PreferenceDataset(Dataset):
     def __getitem__(self, idx):
         s = self.samples[idx]
         if self.preload:
-            traj_a = s["traj_a"]
-            traj_b = s["traj_b"]
+            i = int(np.random.randint(0, len(s["trajs_a"]))) if self.training else 0
+            traj_a = s["trajs_a"][i]
+            traj_b = s["trajs_b"][i]
         else:
             offset = int(np.random.randint(0, self.stride)) if self.training else 0
-            traj_a = load_trajectory(s["hdf5_a"], self.stride, self.seq_len, self.img_size, offset)
-            traj_b = load_trajectory(s["hdf5_b"], self.stride, self.seq_len, self.img_size, offset)
+            traj_a = load_trajectory(s["hdf5_a"], self.stride, self.seq_len, self.img_size, offset, self.action_chunk_size)
+            traj_b = load_trajectory(s["hdf5_b"], self.stride, self.seq_len, self.img_size, offset, self.action_chunk_size)
 
         return {
             "traj_a": traj_a,
@@ -262,6 +276,8 @@ def make_datasets(
     img_size: tuple = (128, 128),
     seed: int = 0,
     preload: bool = True,
+    action_chunk_size: int = 0,
+    preload_offsets: int = 5,
 ) -> tuple[PreferenceDataset, PreferenceDataset]:
     """
     Randomly assign val_fraction of preference sessions to validation and the
@@ -290,6 +306,6 @@ def make_datasets(
     print(f"Task: {task} | Keys: {preference_keys}")
     print(f"Train: {len(train_dirs)} sessions, Val: {len(val_dirs)} sessions")
 
-    train_ds = PreferenceDataset(train_dirs, preference_keys=preference_keys, stride=stride, seq_len=seq_len, img_size=img_size, training=True,  preload=preload)
-    val_ds   = PreferenceDataset(val_dirs,   preference_keys=preference_keys, stride=stride, seq_len=seq_len, img_size=img_size, training=False, preload=preload)
+    train_ds = PreferenceDataset(train_dirs, preference_keys=preference_keys, stride=stride, seq_len=seq_len, img_size=img_size, training=True,  preload=preload, action_chunk_size=action_chunk_size, preload_offsets=preload_offsets)
+    val_ds   = PreferenceDataset(val_dirs,   preference_keys=preference_keys, stride=stride, seq_len=seq_len, img_size=img_size, training=False, preload=preload, action_chunk_size=action_chunk_size, preload_offsets=preload_offsets)
     return train_ds, val_ds

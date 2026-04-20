@@ -16,6 +16,7 @@ import matplotlib.patches as mpatches
 from matplotlib.animation import FuncAnimation, FFMpegWriter
 import numpy as np
 import torch
+from flow_model import RewardModel as FlowRewardModel
 
 
 def _to_img(tensor: torch.Tensor) -> np.ndarray:
@@ -61,18 +62,21 @@ def visualize_validation_batch(
             wr_b_frames = item["traj_b"]["wrist"]
             T = tp_a_frames.shape[0]
 
-            # Model forward — ImageNet normalization to match pretrained backbone
-            _mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 1, 3, 1, 1)
-            _std  = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 1, 3, 1, 1)
+            def _to_batch(t):
+                return t.unsqueeze(0).to(device)
 
-            def _norm(t):
-                return (t.unsqueeze(0).to(device).float() / 255.0 - _mean) / _std
-
-            mask_a = item["traj_a"]["padding_mask"].unsqueeze(0).to(device)
-            mask_b = item["traj_b"]["padding_mask"].unsqueeze(0).to(device)
-
-            r_a = model(_norm(tp_a_frames), _norm(wr_a_frames), mask_a)
-            r_b = model(_norm(tp_b_frames), _norm(wr_b_frames), mask_b)
+            if isinstance(model, FlowRewardModel):
+                obs_a = {k: _to_batch(v) for k, v in item["traj_a"].items()
+                         if k in ("third_person", "wrist", "padding_mask", "proprio")}
+                obs_b = {k: _to_batch(v) for k, v in item["traj_b"].items()
+                         if k in ("third_person", "wrist", "padding_mask", "proprio")}
+                r_a = model(obs_a)
+                r_b = model(obs_b)
+            else:
+                mask_a = _to_batch(item["traj_a"]["padding_mask"])
+                mask_b = _to_batch(item["traj_b"]["padding_mask"])
+                r_a = model(_to_batch(tp_a_frames), _to_batch(wr_a_frames), mask_a)
+                r_b = model(_to_batch(tp_b_frames), _to_batch(wr_b_frames), mask_b)
             r_a_np = r_a.squeeze(0).cpu().numpy()   # (K,)
             r_b_np = r_b.squeeze(0).cpu().numpy()   # (K,)
             prob_a = 1.0 / (1.0 + np.exp(-(r_a_np - r_b_np)))  # sigmoid(r_A - r_B)
@@ -202,12 +206,6 @@ def visualize_top_bottom_trajectories(
     model.eval()
     K = len(preference_keys)
 
-    _mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 1, 3, 1, 1)
-    _std  = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 1, 3, 1, 1)
-
-    def _norm(t):
-        return (t.unsqueeze(0).to(device).float() / 255.0 - _mean) / _std
-
     # Collect (tp_frames, reward_vector) for every individual trajectory
     entries = []  # list of {"frames": (T,H,W,3) uint8 numpy, "reward": (K,) float}
     with torch.no_grad():
@@ -215,9 +213,15 @@ def visualize_top_bottom_trajectories(
             item = dataset[idx]
             for traj_key in ("traj_a", "traj_b"):
                 tp_frames = item[traj_key]["third_person"]   # (T, 3, H, W) uint8
-                wr_frames = item[traj_key]["wrist"]
-                mask = item[traj_key]["padding_mask"].unsqueeze(0).to(device)
-                r = model(_norm(tp_frames), _norm(wr_frames), mask).squeeze(0).cpu().numpy()  # (K,)
+                if isinstance(model, FlowRewardModel):
+                    obs = {k: v.unsqueeze(0).to(device) for k, v in item[traj_key].items()
+                           if k in ("third_person", "wrist", "padding_mask", "proprio")}
+                    r = model(obs).squeeze(0).cpu().numpy()  # (K,)
+                else:
+                    wr_frames = item[traj_key]["wrist"]
+                    mask = item[traj_key]["padding_mask"].unsqueeze(0).to(device)
+                    r = model(tp_frames.unsqueeze(0).to(device),
+                              wr_frames.unsqueeze(0).to(device), mask).squeeze(0).cpu().numpy()  # (K,)
                 entries.append({
                     "frames": tp_frames.permute(0, 2, 3, 1).numpy(),  # (T, H, W, 3)
                     "reward": r,

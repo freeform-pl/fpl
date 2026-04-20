@@ -4,4 +4,4 @@ exp
 .claude
 wandb
 slurm/
-__pycache__
+__pycache__/
