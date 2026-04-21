@@ -353,6 +353,20 @@ def bradley_terry_loss(
     return loss, per_dim_correct, per_dim_labeled
 
 
+def anchor_loss(rewards: torch.Tensor, dim: int, target: float) -> torch.Tensor:
+    """
+    MSE loss pushing rewards[:, dim] toward a fixed target (0.0=bad, 1.0=good).
+
+    Args:
+        rewards: (1, K) reward vector for one anchor trajectory
+        dim:     which preference dimension this anchor applies to
+        target:  0.0 or 1.0
+    Returns:
+        scalar loss
+    """
+    return F.mse_loss(rewards[0, dim], torch.tensor(target, device=rewards.device))
+
+
 
 def bradley_terry_loss_regression(
     rewards_a: torch.Tensor,

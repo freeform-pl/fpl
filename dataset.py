@@ -309,3 +309,43 @@ def make_datasets(
     train_ds = PreferenceDataset(train_dirs, preference_keys=preference_keys, stride=stride, seq_len=seq_len, img_size=img_size, training=True,  preload=preload, action_chunk_size=action_chunk_size, preload_offsets=preload_offsets)
     val_ds   = PreferenceDataset(val_dirs,   preference_keys=preference_keys, stride=stride, seq_len=seq_len, img_size=img_size, training=False, preload=preload, action_chunk_size=action_chunk_size, preload_offsets=preload_offsets)
     return train_ds, val_ds
+
+
+def load_anchors(
+    anchors_file: str,
+    preference_keys: list,
+    stride: int,
+    seq_len: int,
+    img_size: tuple = (128, 128),
+    action_chunk_size: int = 0,
+) -> list:
+    """
+    Load anchor trajectories from a JSON file.
+
+    Each entry in the returned list is:
+        {"traj": dict, "dim": int, "target": float}
+
+    where target=1.0 means "good" and target=0.0 means "bad".
+    Only keys present in preference_keys are loaded.
+    """
+    with open(anchors_file) as f:
+        data = json.load(f)
+
+    entries = []
+    for key_name, splits in data.items():
+        if key_name not in preference_keys:
+            print(f"[anchors] Skipping unknown key '{key_name}'")
+            continue
+        dim = preference_keys.index(key_name)
+        for label, paths in splits.items():
+            target = 1.0 if label == "good" else 0.0
+            for path in paths:
+                try:
+                    traj = load_trajectory(path, stride, seq_len, img_size, offset=0,
+                                           action_chunk_size=action_chunk_size)
+                    entries.append({"traj": traj, "dim": dim, "target": target})
+                except Exception as e:
+                    print(f"[anchors] Skipping {path}: {e}")
+
+    print(f"Loaded {len(entries)} anchor trajectories from {anchors_file}")
+    return entries

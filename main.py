@@ -23,8 +23,8 @@ import wandb
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from dataset import make_datasets, print_dataset_stats
-from model import RewardModel, DiscountedRewardModel, bradley_terry_loss, bradley_terry_loss_regression
+from dataset import make_datasets, print_dataset_stats, load_anchors
+from model import RewardModel, DiscountedRewardModel, bradley_terry_loss, bradley_terry_loss_regression, anchor_loss
 from flow_model import RewardModel as FlowRewardModel
 from tasks import TASKS
 from visualization import visualize_validation_batch, visualize_top_bottom_trajectories, plot_training_curves
@@ -86,6 +86,12 @@ def parse_args():
                    help="Loss weight for Equal-labeled samples (0 = skip)")
     p.add_argument("--regression", action="store_true",
                    help="Use MSE regression to 0/1 targets instead of Bradley-Terry cross-entropy (non-flow models)")
+    p.add_argument("--anchor", action="store_true",
+                   help="Add anchor loss to bound rewards: force specific trajectories toward 0 (bad) or 1 (good)")
+    p.add_argument("--anchors_file", type=str, default=None,
+                   help="Path to anchors JSON file (see preferences_*/anchors.json for format)")
+    p.add_argument("--anchor_weight", type=float, default=1.0,
+                   help="Weight for anchor loss relative to preference loss")
 
     # Logging / saving
     p.add_argument("--out_dir", default="exp/")
@@ -248,6 +254,19 @@ def main():
     print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}")
     print_dataset_stats(train_ds, val_ds)
 
+    anchor_entries = []
+    if args.anchor:
+        if not args.anchors_file:
+            raise ValueError("--anchor requires --anchors_file")
+        anchor_entries = load_anchors(
+            args.anchors_file,
+            preference_keys,
+            stride=args.stride,
+            seq_len=args.seq_len,
+            img_size=(args.img_size, args.img_size),
+            action_chunk_size=args.action_chunk_size if args.ptp else 0,
+        )
+
     train_loader = DataLoader(
         train_ds,
         batch_size=args.batch_size,
@@ -387,6 +406,28 @@ def main():
                 else:
                     loss, per_dim_correct, per_dim_labeled = bradley_terry_loss(r_a, r_b, labels, args.equal_weight)
             per_dim_acc = per_dim_correct / per_dim_labeled.clamp(min=1)
+
+            if anchor_entries:
+                anc_loss = torch.zeros(1, device=device)
+                for entry in anchor_entries:
+                    traj = entry["traj"]
+                    if isinstance(model, FlowRewardModel):
+                        obs_anc = {
+                            "third_person": traj["third_person"].unsqueeze(0).to(device),
+                            "wrist": traj["wrist"].unsqueeze(0).to(device),
+                            "padding_mask": traj["padding_mask"].unsqueeze(0).to(device),
+                            "proprio": traj["proprio"].unsqueeze(0).to(device),
+                        }
+                        r_anc = model(obs_anc)
+                    else:
+                        r_anc = model(
+                            traj["third_person"].unsqueeze(0).to(device),
+                            traj["wrist"].unsqueeze(0).to(device),
+                            traj["padding_mask"].unsqueeze(0).to(device),
+                        )
+                    anc_loss = anc_loss + anchor_loss(r_anc, entry["dim"], entry["target"])
+                loss = loss + args.anchor_weight * anc_loss / len(anchor_entries)
+
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
@@ -424,6 +465,8 @@ def main():
                     }
                     if args.ptp and isinstance(model, FlowRewardModel):
                         log_dict["train/action_loss"] = action_loss.item()
+                    if anchor_entries:
+                        log_dict["train/anchor_loss"] = anc_loss.item() / len(anchor_entries)
                     wandb.log(log_dict, step=global_step)
 
             # ---- validation ----
@@ -466,15 +509,21 @@ def main():
                     max_samples=args.max_vis_samples,
                     step=global_step,
                 )
-                top_bottom_dir = os.path.join(vis_step_dir, "top_bottom")
-                top_bottom_mp4s = visualize_top_bottom_trajectories(
+                top_bottom_train_mp4s, uniform_train_mp4s = visualize_top_bottom_trajectories(
                     model, train_ds, device,
-                    out_dir=top_bottom_dir,
+                    out_dir=os.path.join(vis_step_dir, "top_bottom_train"),
                     preference_keys=preference_keys,
-                    n=5,
+                    n=5, n_uniform=10,
                     step=global_step,
                 )
-                print(f"  [Vis] Saved {n_vis_val} val + {n_vis_train} train + {len(top_bottom_mp4s)} top/bottom figures → {vis_step_dir}")
+                top_bottom_val_mp4s, uniform_val_mp4s = visualize_top_bottom_trajectories(
+                    model, val_ds, device,
+                    out_dir=os.path.join(vis_step_dir, "top_bottom_val"),
+                    preference_keys=preference_keys,
+                    n=5, n_uniform=10,
+                    step=global_step,
+                )
+                print(f"  [Vis] Saved {n_vis_val} val + {n_vis_train} train + top/bottom + uniform spectrum → {vis_step_dir}")
 
                 if use_wandb:
                     val_mp4s = sorted(f for f in os.listdir(os.path.join(vis_step_dir, "val")) if f.endswith(".mp4"))
@@ -485,7 +534,10 @@ def main():
                         **{f"val/acc_{k}": float(v) for k, v in zip(preference_keys, val_acc_vis)},
                         **{f"val/video_{i}": wandb.Video(os.path.join(vis_step_dir, "val", f), format="mp4") for i, f in enumerate(val_mp4s)},
                         **{f"train/video_{i}": wandb.Video(os.path.join(vis_step_dir, "train", f), format="mp4") for i, f in enumerate(train_mp4s)},
-                        **{f"top_bottom/{k}": wandb.Video(p, format="mp4") for k, p in zip(preference_keys, top_bottom_mp4s)},
+                        **{f"top_bottom_train/{k}": wandb.Video(p, format="mp4") for k, p in zip(preference_keys, top_bottom_train_mp4s)},
+                        **{f"top_bottom_val/{k}": wandb.Video(p, format="mp4") for k, p in zip(preference_keys, top_bottom_val_mp4s)},
+                        **{f"uniform_train/{k}": wandb.Video(p, format="mp4") for k, p in zip(preference_keys, uniform_train_mp4s)},
+                        **{f"uniform_val/{k}": wandb.Video(p, format="mp4") for k, p in zip(preference_keys, uniform_val_mp4s)},
                     }, step=global_step)
 
             # ---- checkpoint ----

@@ -194,13 +194,15 @@ def visualize_top_bottom_trajectories(
     out_dir: str,
     preference_keys: list,
     n: int = 5,
+    n_uniform: int = 10,
     step: int = 0,
     fps: int = 10,
 ):
     """
     For each preference dimension, collect rewards for every individual trajectory
-    in the dataset, then save one video per dimension showing the top-n and bottom-n
-    trajectories side by side (top row / bottom row).
+    in the dataset, then save:
+      - one video showing top-n vs bottom-n trajectories
+      - one video showing n_uniform trajectories uniformly sampled across the reward spectrum
     """
     os.makedirs(out_dir, exist_ok=True)
     model.eval()
@@ -228,51 +230,76 @@ def visualize_top_bottom_trajectories(
                 })
 
     rewards_all = np.stack([e["reward"] for e in entries])  # (N, K)
+    N = len(entries)
 
-    for k, key in enumerate(preference_keys):
-        sorted_idx = np.argsort(rewards_all[:, k])
-        bottom_idx = sorted_idx[:n]
-        top_idx    = sorted_idx[-n:][::-1]
+    def _save_video(row_groups, row_labels, row_colors, title, fname):
+        """Save a multi-row animation where each row_group is a list of entries."""
+        n_rows = len(row_groups)
+        n_cols = max(len(g) for g in row_groups)
+        T_max = max(e["frames"].shape[0] for g in row_groups for e in g)
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3.5 * n_rows + 0.8),
+                                 squeeze=False)
+        fig.suptitle(title, fontsize=10)
 
-        top_entries    = [entries[i] for i in top_idx]
-        bottom_entries = [entries[i] for i in bottom_idx]
+        for r, (group, label, color) in enumerate(zip(row_groups, row_labels, row_colors)):
+            axes[r, 0].set_ylabel(label, fontsize=8)
+            for c in range(n_cols):
+                axes[r, c].axis("off")
+                if c < len(group):
+                    axes[r, c].set_title(f"r={group[c]['reward'][k]:.2f}", fontsize=7, color=color)
 
-        T = top_entries[0]["frames"].shape[0]
-        fig, axes = plt.subplots(2, n, figsize=(3 * n, 7))
-        fig.suptitle(f"[step {step}]  {key}  —  top {n} (high reward) vs bottom {n} (low reward)", fontsize=11)
+        ims = [[axes[r, c].imshow(row_groups[r][c]["frames"][0])
+                if c < len(row_groups[r]) else None
+                for c in range(n_cols)]
+               for r in range(n_rows)]
 
-        for col, entry in enumerate(top_entries):
-            axes[0, col].set_title(f"r={entry['reward'][k]:.2f}", fontsize=8, color="darkgreen")
-            axes[0, col].axis("off")
-        for col, entry in enumerate(bottom_entries):
-            axes[1, col].set_title(f"r={entry['reward'][k]:.2f}", fontsize=8, color="firebrick")
-            axes[1, col].axis("off")
+        def update(t):
+            artists = []
+            for r, group in enumerate(row_groups):
+                for c, entry in enumerate(group):
+                    ft = min(t, entry["frames"].shape[0] - 1)
+                    ims[r][c].set_data(entry["frames"][ft])
+                    artists.append(ims[r][c])
+            return artists
 
-        axes[0, 0].set_ylabel("High reward", fontsize=8)
-        axes[1, 0].set_ylabel("Low reward",  fontsize=8)
-
-        ims = []
-        for col, entry in enumerate(top_entries):
-            ims.append(axes[0, col].imshow(top_entries[col]["frames"][0]))
-        for col, entry in enumerate(bottom_entries):
-            ims.append(axes[1, col].imshow(bottom_entries[col]["frames"][0]))
-
-        def update(t, ims=ims, top_entries=top_entries, bottom_entries=bottom_entries):
-            for col in range(n):
-                frame_t = min(t, top_entries[col]["frames"].shape[0] - 1)
-                ims[col].set_data(top_entries[col]["frames"][frame_t])
-            for col in range(n):
-                frame_t = min(t, bottom_entries[col]["frames"].shape[0] - 1)
-                ims[n + col].set_data(bottom_entries[col]["frames"][frame_t])
-            return ims
-
-        anim = FuncAnimation(fig, update, frames=T, interval=1000 // fps, blit=True)
-        fname = os.path.join(out_dir, f"step{step:06d}_top_bottom_{key}.mp4")
+        anim = FuncAnimation(fig, update, frames=T_max, interval=1000 // fps, blit=True)
         anim.save(fname, writer=FFMpegWriter(fps=fps))
         plt.close(fig)
 
+    top_bottom_paths = []
+    uniform_paths = []
+
+    for k, key in enumerate(preference_keys):
+        sorted_idx = np.argsort(rewards_all[:, k])
+
+        # --- top / bottom ---
+        bottom_entries = [entries[i] for i in sorted_idx[:n]]
+        top_entries    = [entries[i] for i in sorted_idx[-n:][::-1]]
+        fname_tb = os.path.join(out_dir, f"step{step:06d}_top_bottom_{key}.mp4")
+        _save_video(
+            row_groups=[top_entries, bottom_entries],
+            row_labels=["High reward", "Low reward"],
+            row_colors=["darkgreen", "firebrick"],
+            title=f"[step {step}]  {key}  —  top {n} vs bottom {n}",
+            fname=fname_tb,
+        )
+        top_bottom_paths.append(fname_tb)
+
+        # --- uniform spectrum ---
+        uniform_pick = np.round(np.linspace(0, N - 1, min(n_uniform, N))).astype(int)
+        uniform_entries = [entries[sorted_idx[i]] for i in uniform_pick]
+        fname_uni = os.path.join(out_dir, f"step{step:06d}_uniform_{key}.mp4")
+        _save_video(
+            row_groups=[uniform_entries],
+            row_labels=["Uniform"],
+            row_colors=["steelblue"],
+            title=f"[step {step}]  {key}  —  {n_uniform} uniform samples across reward spectrum",
+            fname=fname_uni,
+        )
+        uniform_paths.append(fname_uni)
+
     model.train()
-    return [os.path.join(out_dir, f"step{step:06d}_top_bottom_{k}.mp4") for k in preference_keys]
+    return top_bottom_paths, uniform_paths
 
 
 def plot_training_curves(
