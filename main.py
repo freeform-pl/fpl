@@ -92,6 +92,10 @@ def parse_args():
                    help="Path to anchors JSON file (see preferences_*/anchors.json for format)")
     p.add_argument("--anchor_weight", type=float, default=1.0,
                    help="Weight for anchor loss relative to preference loss")
+    p.add_argument("--success_connection_rate", type=float, default=0.0,
+                   help="Fraction of each batch to replace with success-vs-failure cross-pairs "
+                        "(0=disabled; 0.1 targets ~10%% of batch size as cross-pairs, removing "
+                        "the same number of original pairs so total batch size stays constant)")
 
     # Logging / saving
     p.add_argument("--out_dir", default="exp/")
@@ -136,6 +140,60 @@ def make_obs(traj: dict, device: torch.device, augment: bool = False) -> dict:
     return obs
 
 
+def make_success_collate_fn(rate: float, num_preferences: int):
+    """
+    Returns a collate_fn that replaces up to round(rate * B) batch items with
+    success-vs-failure cross-pairs drawn from within the same batch.
+
+    Cross-pairs get labels=all-ones (success preferred over failure in all dims).
+    If fewer cross-pairs are available than the target, the original batch is kept
+    full and only the available cross-pairs are added instead.
+    """
+    from torch.utils.data.dataloader import default_collate
+
+    def collate_fn(samples):
+        if rate <= 0:
+            return default_collate(samples)
+
+        B = len(samples)
+        n_target = max(1, round(rate * B))
+
+        all_trajs, all_succ = [], []
+        for s in samples:
+            all_trajs.append(s["traj_a"])
+            all_succ.append(s["succeeded_a"].item())
+            all_trajs.append(s["traj_b"])
+            all_succ.append(s["succeeded_b"].item())
+
+        succ_idx = [i for i, v in enumerate(all_succ) if v == 1]
+        fail_idx = [i for i, v in enumerate(all_succ) if v == 0]
+        all_cross = [(si, fi) for si in succ_idx for fi in fail_idx]
+        n_use = min(len(all_cross), n_target)
+
+        if n_use == 0:
+            batch = default_collate(samples)
+            batch["n_cross_pairs"] = 0
+            return batch
+
+        chosen = random.sample(all_cross, n_use)
+        new_samples = list(samples[: B - n_use])
+        for si, fi in chosen:
+            new_samples.append({
+                "traj_a": all_trajs[si],
+                "traj_b": all_trajs[fi],
+                "labels": torch.ones(num_preferences, dtype=torch.float32),
+                "succeeded_a": torch.tensor(1, dtype=torch.int8),
+                "succeeded_b": torch.tensor(0, dtype=torch.int8),
+                "session": "cross_pair",
+            })
+
+        batch = default_collate(new_samples)
+        batch["n_cross_pairs"] = n_use
+        return batch
+
+    return collate_fn
+
+
 _augment = T.Compose([
     T.RandomResizedCrop(size=128, scale=(0.85, 1.0), ratio=(0.9, 1.1)),
     T.RandomRotation(degrees=10),
@@ -153,6 +211,7 @@ def augment_traj(x: torch.Tensor) -> torch.Tensor:
     # Apply per-trajectory: same random params for all T frames of a given trajectory
     out = torch.stack([_augment(x[b]) for b in range(B)])  # each call samples new params
     return out
+
 
 
 @torch.no_grad()
@@ -207,7 +266,21 @@ def main():
     args = parse_args()
     set_seed(args.seed)
 
-    run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    run_tags = [args.model]
+    if args.model == "flow" and args.ptp:
+        run_tags.append("ptp")
+    if getattr(args, "regression", False):
+        run_tags.append("regression")
+    if getattr(args, "anchor", False):
+        run_tags.append("anchor")
+    if getattr(args, "success_connection_rate", 0.0) > 0:
+        run_tags.append(f"scr{args.success_connection_rate}")
+    if args.freeze_backbone:
+        run_tags.append("frozen")
+    slurm_id = os.environ.get("SLURM_JOB_ID")
+    run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "_" + "_".join(run_tags)
+    if slurm_id:
+        run_name = run_name + f"_j{slurm_id}"
     args.out_dir = os.path.join(args.out_dir, run_name)
     os.makedirs(args.out_dir, exist_ok=True)
     vis_dir = os.path.join(args.out_dir, "visualizations")
@@ -273,6 +346,7 @@ def main():
         shuffle=True,
         num_workers=args.num_workers,
         pin_memory=(device.type == "cuda"),
+        collate_fn=make_success_collate_fn(args.success_connection_rate, len(preference_keys)),
     )
     val_loader = DataLoader(
         val_ds,
@@ -467,6 +541,9 @@ def main():
                         log_dict["train/action_loss"] = action_loss.item()
                     if anchor_entries:
                         log_dict["train/anchor_loss"] = anc_loss.item() / len(anchor_entries)
+                    if args.success_connection_rate > 0:
+                        n_cross = batch.get("n_cross_pairs", 0)
+                        log_dict["train/cross_pair_frac"] = n_cross / args.batch_size
                     wandb.log(log_dict, step=global_step)
 
             # ---- validation ----

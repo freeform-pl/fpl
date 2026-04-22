@@ -196,6 +196,10 @@ class PreferenceDataset(Dataset):
             labels = parse_preference_labels(meta["preferences"], preference_keys)
             session = meta.get("session_timestamp", os.path.basename(d))
 
+
+            succeeded_a = meta["rollout_A"].get("succeeded", None)
+            succeeded_b = meta["rollout_B"].get("succeeded", None)
+
             self.samples.append({
                 "hdf5_a": hdf5_a,
                 "hdf5_b": hdf5_b,
@@ -203,6 +207,8 @@ class PreferenceDataset(Dataset):
                 "session": session,
                 "instruction": meta.get("instruction", ""),
                 "raw_preferences": meta["preferences"],
+                "succeeded_a": torch.tensor(1 if succeeded_a is True else (0 if succeeded_a is False else -1), dtype=torch.int8),
+                "succeeded_b": torch.tensor(1 if succeeded_b is True else (0 if succeeded_b is False else -1), dtype=torch.int8),
             })
 
         if preload:
@@ -232,6 +238,8 @@ class PreferenceDataset(Dataset):
             "traj_b": traj_b,
             "labels": s["labels"],
             "session": s["session"],
+            "succeeded_a": s["succeeded_a"],
+            "succeeded_b": s["succeeded_b"],
         }
 
 

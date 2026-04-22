@@ -17,5 +17,5 @@ eval "$(/iris/u/marcelto/miniconda3/bin/conda shell.bash hook)"
 source .venv/bin/activate
 
 # python main.py --stride 8 --seq_len 14 --img_size 128 --batch_size 32 --epochs 200 --embed_dim 128 --vis_interval 1 --save_interval 50 --preferences_dir preferences_04_11to22,preferences_2026_04_14
-python main.py --stride 10 --seq_len 20 --img_size 128 --batch_size 64 --epochs 1000 --embed_dim 128 --vis_interval 10 --log_interval 1 --save_interval 50 --preferences_dir preferences_04_11to22,preferences_2026_04_14 --preload
+python main.py --stride 10 --seq_len 20 --img_size 128 --batch_size 64 --epochs 1000 --embed_dim 128 --vis_interval 10 --log_interval 1 --save_interval 50 --preferences_dir preferences_04_11to22,preferences_2026_04_14 --preload --success_connection_rate 0.2 --model discounted 
 # python main.py --stride 8 --seq_len 14 --img_size 128 --batch_size 8 --epochs 200 --embed_dim 128 --vis_interval 1 --save_interval 50 --preferences_dir preferences_04_11to22,preferences_2026_04_14
