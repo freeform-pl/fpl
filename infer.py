@@ -348,6 +348,9 @@ def main():
     parser.add_argument("--seq_len",   type=int, default=None)
     parser.add_argument("--img_size",  type=int, default=None)
     parser.add_argument("--embed_dim", type=int, default=None)
+    parser.add_argument("--output_dir", type=str, default=None,
+                        help="Directory to write score JSON files (default: alongside each preference folder). "
+                             "When set, mirrors the preference folder structure under this directory.")
     parser.add_argument("--vis_dir", type=str, default=None,
                         help="Directory to save histograms and videos (default: <ckpt_dir>/vis_<ckpt_name>)")
     parser.add_argument("--wandb", action="store_true", help="Log histograms and videos to wandb")
@@ -485,6 +488,12 @@ def main():
 
     # --- Pass 2: write JSON files with all label types ---
     for pref_dir, hdf5_a, raw_a, hdf5_b, raw_b in results:
+        if args.output_dir:
+            # Mirror the preference folder name under output_dir
+            json_dir = os.path.join(args.output_dir, os.path.basename(pref_dir))
+            os.makedirs(json_dir, exist_ok=True)
+        else:
+            json_dir = pref_dir
         for raw, suffix in [(raw_a, "A"), (raw_b, "B")]:
             out = {
                 "raw": raw,
@@ -495,7 +504,7 @@ def main():
                 "buckets":         {k: to_bucket(v, score_stats[k]["min"], score_stats[k]["max"]) for k, v in raw.items()},
                 "buckets_quantile": {k: to_quantile_bucket(v, quantile_edges[k]) for k, v in raw.items()},
             }
-            out_path = os.path.join(pref_dir, f"{prefix}_rollout_{suffix}_score.json")
+            out_path = os.path.join(json_dir, f"{prefix}_rollout_{suffix}_score.json")
             with open(out_path, "w") as f:
                 json.dump(out, f, indent=2)
 
@@ -559,11 +568,65 @@ def main():
             },
         }
 
-    stats_dir = args.preferences_dir[0] if len(args.preferences_dir) == 1 else os.path.dirname(args.ckpt)
+    if args.output_dir:
+        stats_dir = args.output_dir
+    elif len(args.preferences_dir) == 1:
+        stats_dir = args.preferences_dir[0]
+    else:
+        stats_dir = os.path.dirname(args.ckpt)
+    os.makedirs(stats_dir, exist_ok=True)
     stats_path = os.path.join(stats_dir, f"{prefix}_stats.json")
     with open(stats_path, "w") as f:
         json.dump(stats_out, f, indent=2)
     print(f"Stats saved → {stats_path}")
+
+    # --- Save npz for downstream analysis ---
+    K = len(args.preference_keys)
+    N = sum(len(v) for v in entries_by_key.values()) // K  # trajectories
+
+    # Collect in consistent order (same order as results iteration)
+    hdf5_paths, sessions, rollouts = [], [], []
+    scores_rows, norm_rows, std_rows, qbucket_rows = [], [], [], []
+
+    for pref_dir, hdf5_a, raw_a, hdf5_b, raw_b in results:
+        session = os.path.basename(pref_dir)
+        for raw, hdf5, rollout in [(raw_a, hdf5_a, "A"), (raw_b, hdf5_b, "B")]:
+            hdf5_paths.append(hdf5)
+            sessions.append(session)
+            rollouts.append(rollout)
+            st_row, no_row, zs_row, qb_row = [], [], [], []
+            for key in args.preference_keys:
+                st = score_stats[key]
+                v = raw[key]
+                st_row.append(v)
+                no_row.append((v - st["min"]) / max(st["max"] - st["min"], 1e-8))
+                zs_row.append((v - st["mean"]) / max(st["std"], 1e-8))
+                qb_row.append(to_quantile_bucket(v, quantile_edges[key]))
+            scores_rows.append(st_row)
+            norm_rows.append(no_row)
+            std_rows.append(zs_row)
+            qbucket_rows.append(qb_row)
+
+    qedges_matrix = np.array([quantile_edges[k] for k in args.preference_keys])  # (K, N_BUCKETS+1)
+
+    npz_path = os.path.join(vis_dir, f"{prefix}_data.npz")
+    np.savez(
+        npz_path,
+        preference_keys=np.array(args.preference_keys),
+        hdf5_paths=np.array(hdf5_paths),
+        sessions=np.array(sessions),
+        rollouts=np.array(rollouts),
+        scores=np.array(scores_rows, dtype=np.float32),          # (N, K) raw
+        normalized=np.array(norm_rows, dtype=np.float32),        # (N, K)
+        standardized=np.array(std_rows, dtype=np.float32),       # (N, K)
+        q_buckets=np.array(qbucket_rows, dtype=np.int8),         # (N, K)
+        stat_min=np.array([score_stats[k]["min"]  for k in args.preference_keys], dtype=np.float32),
+        stat_max=np.array([score_stats[k]["max"]  for k in args.preference_keys], dtype=np.float32),
+        stat_mean=np.array([score_stats[k]["mean"] for k in args.preference_keys], dtype=np.float32),
+        stat_std=np.array([score_stats[k]["std"]  for k in args.preference_keys], dtype=np.float32),
+        quantile_edges=qedges_matrix.astype(np.float32),
+    )
+    print(f"Data saved → {npz_path}")
 
     if args.wandb:
         import wandb

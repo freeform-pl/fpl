@@ -16,6 +16,9 @@ import random
 import time
 from datetime import datetime
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torchvision.transforms.v2 as T
@@ -23,11 +26,11 @@ import wandb
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from dataset import make_datasets, print_dataset_stats, load_anchors
+from dataset import make_datasets, print_dataset_stats, load_anchors, load_cross_preferences
 from model import RewardModel, DiscountedRewardModel, bradley_terry_loss, bradley_terry_loss_regression, anchor_loss
 from flow_model import RewardModel as FlowRewardModel
 from tasks import TASKS
-from visualization import visualize_validation_batch, visualize_top_bottom_trajectories, plot_training_curves
+from visualization import visualize_validation_batch, visualize_top_bottom_trajectories, plot_training_curves, plot_reward_correlation
 
 
 def parse_args():
@@ -92,6 +95,9 @@ def parse_args():
                    help="Path to anchors JSON file (see preferences_*/anchors.json for format)")
     p.add_argument("--anchor_weight", type=float, default=1.0,
                    help="Weight for anchor loss relative to preference loss")
+    p.add_argument("--cross_preferences_dir", type=str, default=None,
+                   help="Directory containing cross-preference JSON files (preference_X.json). "
+                        "Rollouts are looked up by timestamp from --preferences_dir sessions.")
     p.add_argument("--success_connection_rate", type=float, default=0.0,
                    help="Fraction of each batch to replace with success-vs-failure cross-pairs "
                         "(0=disabled; 0.1 targets ~10%% of batch size as cross-pairs, removing "
@@ -327,6 +333,22 @@ def main():
     print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}")
     print_dataset_stats(train_ds, val_ds)
 
+    if args.cross_preferences_dir:
+        if not os.path.isdir(args.cross_preferences_dir):
+            print(f"[cross_preferences] Directory not found: {args.cross_preferences_dir}, skipping")
+        else:
+            cross_samples = load_cross_preferences(
+                cross_dir=args.cross_preferences_dir,
+                preference_dirs=preference_dirs,
+                preference_keys=preference_keys,
+                stride=args.stride,
+                seq_len=args.seq_len,
+                img_size=(args.img_size, args.img_size),
+                action_chunk_size=args.action_chunk_size if args.ptp else 0,
+            )
+            train_ds.samples.extend(cross_samples)
+            print(f"[cross_preferences] Train samples after cross-preferences: {len(train_ds.samples)}")
+
     anchor_entries = []
     if args.anchor:
         if not args.anchors_file:
@@ -421,6 +443,11 @@ def main():
     train_accs = []
     val_losses = []
     val_accs = []
+    import collections
+    # Rolling buffer of per-trajectory reward vectors for correlation logging.
+    # Keeps ~16 batches worth of individual trajectory rewards (r_a and r_b).
+    _corr_buf_maxlen = 16 * args.batch_size * 2
+    reward_corr_buffer = collections.deque(maxlen=_corr_buf_maxlen)
     global_step = 0
 
     # ---- pre-training baseline ----
@@ -480,6 +507,20 @@ def main():
                 else:
                     loss, per_dim_correct, per_dim_labeled = bradley_terry_loss(r_a, r_b, labels, args.equal_weight)
             per_dim_acc = per_dim_correct / per_dim_labeled.clamp(min=1)
+
+            # --- accumulate rewards into rolling buffer for correlation logging ---
+            with torch.no_grad():
+                if isinstance(model, FlowRewardModel):
+                    # Use a single cheap ODE sample (n_steps=4) to avoid slowing training.
+                    ra_buf = model.sample_reward(cls_a, n_samples=1, n_steps=4).cpu().numpy()
+                    rb_buf = model.sample_reward(cls_b, n_samples=1, n_steps=4).cpu().numpy()
+                else:
+                    ra_buf = r_a.detach().cpu().numpy()
+                    rb_buf = r_b.detach().cpu().numpy()
+            for row in ra_buf:
+                reward_corr_buffer.append(row)
+            for row in rb_buf:
+                reward_corr_buffer.append(row)
 
             if anchor_entries:
                 anc_loss = torch.zeros(1, device=device)
@@ -544,6 +585,11 @@ def main():
                     if args.success_connection_rate > 0:
                         n_cross = batch.get("n_cross_pairs", 0)
                         log_dict["train/cross_pair_frac"] = n_cross / args.batch_size
+                    if len(reward_corr_buffer) >= len(preference_keys) + 1:
+                        corr_arr = np.array(reward_corr_buffer)
+                        corr_fig = plot_reward_correlation(corr_arr, preference_keys)
+                        log_dict["train/reward_correlation"] = wandb.Image(corr_fig)
+                        plt.close(corr_fig)
                     wandb.log(log_dict, step=global_step)
 
             # ---- validation ----

@@ -1,4 +1,5 @@
 preferences*
+infer_output
 exp
 .venv
 .claude

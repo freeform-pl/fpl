@@ -224,7 +224,7 @@ class PreferenceDataset(Dataset):
 
     def __getitem__(self, idx):
         s = self.samples[idx]
-        if self.preload:
+        if self.preload and "trajs_a" in s:
             i = int(np.random.randint(0, len(s["trajs_a"]))) if self.training else 0
             traj_a = s["trajs_a"][i]
             traj_b = s["trajs_b"][i]
@@ -317,6 +317,113 @@ def make_datasets(
     train_ds = PreferenceDataset(train_dirs, preference_keys=preference_keys, stride=stride, seq_len=seq_len, img_size=img_size, training=True,  preload=preload, action_chunk_size=action_chunk_size, preload_offsets=preload_offsets)
     val_ds   = PreferenceDataset(val_dirs,   preference_keys=preference_keys, stride=stride, seq_len=seq_len, img_size=img_size, training=False, preload=preload, action_chunk_size=action_chunk_size, preload_offsets=preload_offsets)
     return train_ds, val_ds
+
+
+def load_cross_preferences(
+    cross_dir: str,
+    preference_dirs: list,
+    preference_keys: list,
+    stride: int,
+    seq_len: int,
+    img_size: tuple = (128, 128),
+    action_chunk_size: int = 0,
+) -> list:
+    """
+    Load cross-preference samples from a directory of preference_X.json files.
+
+    Each JSON has rollout_A_timestamp / rollout_B_timestamp that match the
+    rollout_A.timestamp / rollout_B.timestamp fields inside regular preference.json
+    sessions.  The corresponding HDF5 files are looked up from preference_dirs.
+
+    Returns a list of samples in the same dict format as PreferenceDataset.samples.
+    """
+    import glob as _glob
+
+    # Build timestamp → (hdf5_path, succeeded) across all regular preference sessions.
+    ts_map = {}  # str timestamp → (abs hdf5 path, succeeded bool|None)
+    for pref_dir in preference_dirs:
+        if not os.path.isdir(pref_dir):
+            continue
+        for session_name in os.listdir(pref_dir):
+            pref_file = os.path.join(pref_dir, session_name, "preference.json")
+            if not os.path.exists(pref_file):
+                continue
+            try:
+                with open(pref_file) as f:
+                    meta = json.load(f)
+            except Exception:
+                continue
+            session_path = os.path.join(pref_dir, session_name)
+            for rollout_key, hdf5_name in [("rollout_A", "rollout_A.hdf5"),
+                                            ("rollout_B", "rollout_B.hdf5")]:
+                info = meta.get(rollout_key, {})
+                ts = info.get("timestamp")
+                if ts is None:
+                    continue
+                hdf5_path = os.path.join(session_path, hdf5_name)
+                if os.path.exists(hdf5_path):
+                    ts_map[ts] = (hdf5_path, info.get("succeeded", None))
+
+    if not ts_map:
+        print("[cross_preferences] No rollout timestamps found in preference_dirs")
+        return []
+
+    cross_files = sorted(_glob.glob(os.path.join(cross_dir, "preference_*.json")))
+    if not cross_files:
+        print(f"[cross_preferences] No preference_*.json files found in {cross_dir}")
+        return []
+
+    samples = []
+    n_skip = 0
+    for cross_file in cross_files:
+        try:
+            with open(cross_file) as f:
+                meta = json.load(f)
+        except Exception as e:
+            print(f"[cross_preferences] Skipping {os.path.basename(cross_file)}: {e}")
+            n_skip += 1
+            continue
+
+        ts_a = meta.get("rollout_A_timestamp")
+        ts_b = meta.get("rollout_B_timestamp")
+
+        if ts_a not in ts_map:
+            print(f"[cross_preferences] Skipping {os.path.basename(cross_file)}: "
+                  f"rollout_A_timestamp '{ts_a}' not found")
+            n_skip += 1
+            continue
+        if ts_b not in ts_map:
+            print(f"[cross_preferences] Skipping {os.path.basename(cross_file)}: "
+                  f"rollout_B_timestamp '{ts_b}' not found")
+            n_skip += 1
+            continue
+
+        hdf5_a, succeeded_a = ts_map[ts_a]
+        hdf5_b, succeeded_b = ts_map[ts_b]
+
+        labels = parse_preference_labels(meta["preferences"], preference_keys)
+        session = meta.get("session_timestamp", os.path.basename(cross_file))
+
+        samples.append({
+            "hdf5_a": hdf5_a,
+            "hdf5_b": hdf5_b,
+            "labels": labels,
+            "session": session,
+            "instruction": meta.get("instruction", ""),
+            "raw_preferences": meta["preferences"],
+            "succeeded_a": torch.tensor(
+                1 if succeeded_a is True else (0 if succeeded_a is False else -1),
+                dtype=torch.int8,
+            ),
+            "succeeded_b": torch.tensor(
+                1 if succeeded_b is True else (0 if succeeded_b is False else -1),
+                dtype=torch.int8,
+            ),
+        })
+
+    print(f"[cross_preferences] Loaded {len(samples)} samples, "
+          f"skipped {n_skip} out of {len(cross_files)} files")
+    return samples
 
 
 def load_anchors(

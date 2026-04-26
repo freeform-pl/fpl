@@ -302,6 +302,39 @@ def visualize_top_bottom_trajectories(
     return top_bottom_paths, uniform_paths
 
 
+def plot_reward_correlation(rewards: np.ndarray, preference_keys: list) -> "plt.Figure":
+    """
+    Plot a correlation matrix of reward dimensions from a (N, K) array.
+
+    Values are standardized (z-scored) before computing Pearson correlation.
+    Returns a matplotlib Figure (caller is responsible for closing it).
+    """
+    K = len(preference_keys)
+    # Standardize per dimension across the N trajectories in the buffer.
+    std = rewards.std(axis=0, keepdims=True)
+    std = np.where(std < 1e-8, 1.0, std)
+    z = (rewards - rewards.mean(axis=0, keepdims=True)) / std  # (N, K)
+    corr = np.corrcoef(z.T)  # (K, K)
+
+    fig, ax = plt.subplots(figsize=(max(4, K * 1.1), max(3.5, K * 1.0)))
+    im = ax.imshow(corr, vmin=-1, vmax=1, cmap="RdBu_r", aspect="auto")
+    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    ax.set_xticks(range(K))
+    ax.set_yticks(range(K))
+    ax.set_xticklabels(preference_keys, rotation=30, ha="right", fontsize=8)
+    ax.set_yticklabels(preference_keys, fontsize=8)
+    ax.set_title(f"Reward correlation  (N={len(rewards)})", fontsize=9)
+
+    for i in range(K):
+        for j in range(K):
+            ax.text(j, i, f"{corr[i, j]:.2f}", ha="center", va="center",
+                    fontsize=7, color="black" if abs(corr[i, j]) < 0.6 else "white")
+
+    plt.tight_layout()
+    return fig
+
+
 def plot_training_curves(
     train_losses: list,
     train_accs: list,
