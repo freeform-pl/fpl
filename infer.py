@@ -419,6 +419,8 @@ def main():
     model_folder = os.path.basename(os.path.dirname(os.path.dirname(args.ckpt)))
     prefix = f"reward_model_{model_folder}_{ckpt_name}"
 
+    import h5py
+
     pref_dirs = sorted(
         os.path.join(root, d)
         for root in args.preferences_dir
@@ -426,9 +428,18 @@ def main():
         if os.path.isdir(os.path.join(root, d))
     )
 
+    # Collect standalone HDF5 files (not inside subdirs, e.g. demos_62.hdf5)
+    standalone_hdf5 = sorted(
+        os.path.join(root, f)
+        for root in args.preferences_dir
+        for f in os.listdir(root)
+        if f.endswith(".hdf5") and os.path.isfile(os.path.join(root, f))
+    )
+
     # --- Pass 1: score all trajectories, collect raw scores ---
     all_scores = defaultdict(list)
-    results = []  # [(pref_dir, raw_a, raw_b)]
+    results = []       # [(pref_dir, hdf5_a, raw_a, hdf5_b, raw_b)]
+    solo_results = []  # [(hdf5_path, raw_scores)]
 
     for pref_dir in pref_dirs:
         hdf5_a = os.path.join(pref_dir, "rollout_A.hdf5")
@@ -440,7 +451,6 @@ def main():
 
         # Validate HDF5 structure (same check as dataset.py)
         try:
-            import h5py
             for path in (hdf5_a, hdf5_b):
                 with h5py.File(path, "r") as f:
                     demo_key = next(iter(f["data"].keys()))
@@ -470,8 +480,30 @@ def main():
         print(f"  A: {a_str}")
         print(f"  B: {b_str}")
 
-    if not results:
-        print("No valid preference folders found.")
+    # Score standalone HDF5 files
+    for hdf5_path in standalone_hdf5:
+        try:
+            with h5py.File(hdf5_path, "r") as f:
+                demo_key = next(iter(f["data"].keys()))
+                _ = f[f"data/{demo_key}/obs/agent_view"].shape
+                _ = f[f"data/{demo_key}/obs/JOINT_POS"].shape
+        except (OSError, KeyError):
+            print(f"  [skip] {hdf5_path} — incompatible HDF5 format")
+            continue
+        try:
+            raw = score_trajectory(model, hdf5_path, args, device)
+        except (KeyError, OSError) as e:
+            print(f"  [skip] {hdf5_path} — {e}")
+            continue
+        solo_results.append((hdf5_path, raw))
+        for k, v in raw.items():
+            all_scores[k].append(v)
+        name = os.path.splitext(os.path.basename(hdf5_path))[0]
+        s_str = ", ".join(f"{k}: {v:.3f}" for k, v in raw.items())
+        print(f"[{name}]  {s_str}")
+
+    if not results and not solo_results:
+        print("No valid trajectories found.")
         return
 
     # --- Compute quantile edges and per-key stats from full distribution ---
@@ -487,42 +519,66 @@ def main():
     }
 
     # --- Pass 2: write JSON files with all label types ---
+    def _make_score_dict(raw: dict, source_hdf5: str) -> dict:
+        return {
+            "source_hdf5": source_hdf5,
+            "raw": raw,
+            "normalized":    {k: float((v - score_stats[k]["min"]) / max(score_stats[k]["max"] - score_stats[k]["min"], 1e-8))
+                               for k, v in raw.items()},
+            "standardized":  {k: float((v - score_stats[k]["mean"]) / max(score_stats[k]["std"], 1e-8))
+                               for k, v in raw.items()},
+            "buckets":         {k: to_bucket(v, score_stats[k]["min"], score_stats[k]["max"]) for k, v in raw.items()},
+            "buckets_quantile": {k: to_quantile_bucket(v, quantile_edges[k]) for k, v in raw.items()},
+        }
+
     for pref_dir, hdf5_a, raw_a, hdf5_b, raw_b in results:
         if args.output_dir:
-            # Mirror the preference folder name under output_dir
             json_dir = os.path.join(args.output_dir, os.path.basename(pref_dir))
             os.makedirs(json_dir, exist_ok=True)
         else:
             json_dir = pref_dir
-        for raw, suffix in [(raw_a, "A"), (raw_b, "B")]:
-            out = {
-                "raw": raw,
-                "normalized":    {k: float((v - score_stats[k]["min"]) / max(score_stats[k]["max"] - score_stats[k]["min"], 1e-8))
-                                   for k, v in raw.items()},
-                "standardized":  {k: float((v - score_stats[k]["mean"]) / max(score_stats[k]["std"], 1e-8))
-                                   for k, v in raw.items()},
-                "buckets":         {k: to_bucket(v, score_stats[k]["min"], score_stats[k]["max"]) for k, v in raw.items()},
-                "buckets_quantile": {k: to_quantile_bucket(v, quantile_edges[k]) for k, v in raw.items()},
-            }
+        for raw, hdf5, suffix in [(raw_a, hdf5_a, "A"), (raw_b, hdf5_b, "B")]:
+            out = _make_score_dict(raw, hdf5)
             out_path = os.path.join(json_dir, f"{prefix}_rollout_{suffix}_score.json")
             with open(out_path, "w") as f:
                 json.dump(out, f, indent=2)
 
-    print(f"\nDone. Scores written as '{prefix}_rollout_A/B_score.json' in each folder.")
+    # Write standalone trajectory score JSONs
+    if solo_results:
+        solo_dir = args.output_dir or os.path.dirname(args.ckpt)
+        os.makedirs(solo_dir, exist_ok=True)
+        for i, (hdf5_path, raw) in enumerate(solo_results):
+            out = _make_score_dict(raw, hdf5_path)
+            name = os.path.splitext(os.path.basename(hdf5_path))[0]
+            out_path = os.path.join(solo_dir, f"{prefix}_score_{name}.json")
+            with open(out_path, "w") as f:
+                json.dump(out, f, indent=2)
+
+    n_paired = len(results) * 2
+    n_solo = len(solo_results)
+    print(f"\nDone. Scored {n_paired} paired + {n_solo} standalone trajectories.")
 
     # --- Build per-key entry list for visualization ---
     entries_by_key = defaultdict(list)
+    all_scored = []  # flat list of (hdf5_path, raw_dict, session_name, rollout_label)
     for pref_dir, hdf5_a, raw_a, hdf5_b, raw_b in results:
-        for raw, hdf5 in [(raw_a, hdf5_a), (raw_b, hdf5_b)]:
-            for key, score in raw.items():
-                st = score_stats[key]
-                entries_by_key[key].append({
-                    "hdf5": hdf5,
-                    "raw": score,
-                    "normalized":   (score - st["min"]) / max(st["max"] - st["min"], 1e-8),
-                    "standardized": (score - st["mean"]) / max(st["std"], 1e-8),
-                    "q_bucket": to_quantile_bucket(score, quantile_edges[key]),
-                })
+        session = os.path.basename(pref_dir)
+        for raw, hdf5, rlabel in [(raw_a, hdf5_a, "A"), (raw_b, hdf5_b, "B")]:
+            all_scored.append((hdf5, raw, session, rlabel))
+    for hdf5_path, raw in solo_results:
+        name = os.path.splitext(os.path.basename(hdf5_path))[0]
+        all_scored.append((hdf5_path, raw, name, "solo"))
+
+    for hdf5, raw, _, _ in all_scored:
+        for key, score in raw.items():
+            st = score_stats[key]
+            entries_by_key[key].append({
+                "hdf5": hdf5,
+                "raw": score,
+                "normalized":   (score - st["min"]) / max(st["max"] - st["min"], 1e-8),
+                "standardized": (score - st["mean"]) / max(st["std"], 1e-8),
+                "q_bucket": to_quantile_bucket(score, quantile_edges[key]),
+            })
 
     vis_dir = args.vis_dir or os.path.join(os.path.dirname(args.ckpt), f"vis_{ckpt_name}")
 
@@ -582,30 +638,26 @@ def main():
 
     # --- Save npz for downstream analysis ---
     K = len(args.preference_keys)
-    N = sum(len(v) for v in entries_by_key.values()) // K  # trajectories
 
-    # Collect in consistent order (same order as results iteration)
     hdf5_paths, sessions, rollouts = [], [], []
     scores_rows, norm_rows, std_rows, qbucket_rows = [], [], [], []
 
-    for pref_dir, hdf5_a, raw_a, hdf5_b, raw_b in results:
-        session = os.path.basename(pref_dir)
-        for raw, hdf5, rollout in [(raw_a, hdf5_a, "A"), (raw_b, hdf5_b, "B")]:
-            hdf5_paths.append(hdf5)
-            sessions.append(session)
-            rollouts.append(rollout)
-            st_row, no_row, zs_row, qb_row = [], [], [], []
-            for key in args.preference_keys:
-                st = score_stats[key]
-                v = raw[key]
-                st_row.append(v)
-                no_row.append((v - st["min"]) / max(st["max"] - st["min"], 1e-8))
-                zs_row.append((v - st["mean"]) / max(st["std"], 1e-8))
-                qb_row.append(to_quantile_bucket(v, quantile_edges[key]))
-            scores_rows.append(st_row)
-            norm_rows.append(no_row)
-            std_rows.append(zs_row)
-            qbucket_rows.append(qb_row)
+    for hdf5, raw, session, rlabel in all_scored:
+        hdf5_paths.append(hdf5)
+        sessions.append(session)
+        rollouts.append(rlabel)
+        st_row, no_row, zs_row, qb_row = [], [], [], []
+        for key in args.preference_keys:
+            st = score_stats[key]
+            v = raw[key]
+            st_row.append(v)
+            no_row.append((v - st["min"]) / max(st["max"] - st["min"], 1e-8))
+            zs_row.append((v - st["mean"]) / max(st["std"], 1e-8))
+            qb_row.append(to_quantile_bucket(v, quantile_edges[key]))
+        scores_rows.append(st_row)
+        norm_rows.append(no_row)
+        std_rows.append(zs_row)
+        qbucket_rows.append(qb_row)
 
     qedges_matrix = np.array([quantile_edges[k] for k in args.preference_keys])  # (K, N_BUCKETS+1)
 

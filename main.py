@@ -334,20 +334,69 @@ def main():
     print_dataset_stats(train_ds, val_ds)
 
     if args.cross_preferences_dir:
-        if not os.path.isdir(args.cross_preferences_dir):
-            print(f"[cross_preferences] Directory not found: {args.cross_preferences_dir}, skipping")
-        else:
-            cross_samples = load_cross_preferences(
-                cross_dir=args.cross_preferences_dir,
-                preference_dirs=preference_dirs,
-                preference_keys=preference_keys,
-                stride=args.stride,
-                seq_len=args.seq_len,
-                img_size=(args.img_size, args.img_size),
-                action_chunk_size=args.action_chunk_size if args.ptp else 0,
-            )
+        cross_dirs = [d.strip() for d in args.cross_preferences_dir.split(",") if d.strip()]
+        valid_cross_dirs = []
+        for cd in cross_dirs:
+            if os.path.isdir(cd):
+                valid_cross_dirs.append(cd)
+            else:
+                print(f"[cross_preferences] Directory not found: {cd}, skipping")
+        cross_samples = []
+        if valid_cross_dirs:
+            for cd in valid_cross_dirs:
+                cross_samples.extend(load_cross_preferences(
+                    cross_dir=cd,
+                    preference_dirs=preference_dirs,
+                    preference_keys=preference_keys,
+                    stride=args.stride,
+                    seq_len=args.seq_len,
+                    img_size=(args.img_size, args.img_size),
+                    action_chunk_size=args.action_chunk_size if args.ptp else 0,
+                ))
+            if args.preload and cross_samples:
+                from dataset import load_trajectory
+                n_off = args.preload_offsets
+                offsets = [int(i * args.stride / n_off) for i in range(n_off)]
+                ac = args.action_chunk_size if args.ptp else 0
+                img = (args.img_size, args.img_size)
+                print(f"[cross_preferences] Preloading {len(cross_samples)} cross-preference pairs "
+                      f"× {n_off} offset(s)...")
+                failed = []
+                for si, s in enumerate(cross_samples):
+                    try:
+                        s["trajs_a"] = [load_trajectory(s["hdf5_a"], args.stride, args.seq_len, img, o, ac)
+                                        for o in offsets]
+                        s["trajs_b"] = [load_trajectory(s["hdf5_b"], args.stride, args.seq_len, img, o, ac)
+                                        for o in offsets]
+                    except (OSError, KeyError) as e:
+                        print(f"[cross_preferences] Skipping corrupted HDF5: {e}")
+                        failed.append(si)
+                for si in reversed(failed):
+                    cross_samples.pop(si)
+        if cross_samples:
+            # Print episode length stats for cross-preference trajectories.
+            cross_lengths = []
+            for s in cross_samples:
+                for path in (s["hdf5_a"], s["hdf5_b"]):
+                    try:
+                        with __import__('h5py').File(path, "r") as f:
+                            dk = next(iter(f["data"].keys()))
+                            cross_lengths.append(f[f"data/{dk}/obs/agent_view"].shape[0])
+                    except (OSError, KeyError):
+                        pass
+            if cross_lengths:
+                arr = np.array(cross_lengths)
+                print(f"[cross_preferences] Episode lengths ({len(arr)} rollouts): "
+                      f"min={arr.min()}  max={arr.max()}  "
+                      f"mean={arr.mean():.1f}  median={np.median(arr):.1f}  std={arr.std():.1f}")
             train_ds.samples.extend(cross_samples)
-            print(f"[cross_preferences] Train samples after cross-preferences: {len(train_ds.samples)}")
+
+    all_paths = set()
+    for s in train_ds.samples:
+        all_paths.add(s["hdf5_a"])
+        all_paths.add(s["hdf5_b"])
+    print(f"Total train pairs: {len(train_ds.samples)}  "
+          f"({len(train_ds.samples) * 2} trajectory slots, {len(all_paths)} unique trajectories)")
 
     anchor_entries = []
     if args.anchor:

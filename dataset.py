@@ -365,8 +365,8 @@ def load_cross_preferences(
                     ts_map[ts] = (hdf5_path, info.get("succeeded", None))
 
     if not ts_map:
-        print("[cross_preferences] No rollout timestamps found in preference_dirs")
-        return []
+        print("[cross_preferences] Warning: no rollout timestamps found in preference_dirs "
+              "(cross-preferences using rollout_A_id/rollout_B_id will still work)")
 
     cross_files = sorted(_glob.glob(os.path.join(cross_dir, "preference_*.json")))
     if not cross_files:
@@ -384,22 +384,58 @@ def load_cross_preferences(
             n_skip += 1
             continue
 
-        ts_a = meta.get("rollout_A_timestamp")
-        ts_b = meta.get("rollout_B_timestamp")
+        # Support two formats:
+        #   1) rollout_A_id / rollout_B_id  — direct path to HDF5 (or dir containing .hdf5)
+        #   2) rollout_A_timestamp / rollout_B_timestamp — looked up via ts_map
+        id_a = meta.get("rollout_A_id")
+        id_b = meta.get("rollout_B_id")
 
-        if ts_a not in ts_map:
+        if id_a is not None and id_b is not None:
+            # Direct-path mode: resolve to .hdf5 file
+            hdf5_a = id_a if id_a.endswith(".hdf5") else id_a + ".hdf5"
+            hdf5_b = id_b if id_b.endswith(".hdf5") else id_b + ".hdf5"
+            if not os.path.exists(hdf5_a):
+                print(f"[cross_preferences] Skipping {os.path.basename(cross_file)}: "
+                      f"rollout_A_id path not found: {hdf5_a}")
+                n_skip += 1
+                continue
+            if not os.path.exists(hdf5_b):
+                print(f"[cross_preferences] Skipping {os.path.basename(cross_file)}: "
+                      f"rollout_B_id path not found: {hdf5_b}")
+                n_skip += 1
+                continue
+            succeeded_a = None
+            succeeded_b = None
+        else:
+            # Timestamp-lookup mode
+            ts_a = meta.get("rollout_A_timestamp")
+            ts_b = meta.get("rollout_B_timestamp")
+
+            if ts_a not in ts_map:
+                print(f"[cross_preferences] Skipping {os.path.basename(cross_file)}: "
+                      f"rollout_A_timestamp '{ts_a}' not found")
+                n_skip += 1
+                continue
+            if ts_b not in ts_map:
+                print(f"[cross_preferences] Skipping {os.path.basename(cross_file)}: "
+                      f"rollout_B_timestamp '{ts_b}' not found")
+                n_skip += 1
+                continue
+
+            hdf5_a, succeeded_a = ts_map[ts_a]
+            hdf5_b, succeeded_b = ts_map[ts_b]
+
+        # Validate that both HDF5 files can be opened.
+        try:
+            for path in (hdf5_a, hdf5_b):
+                with h5py.File(path, "r") as f:
+                    demo_key = next(iter(f["data"].keys()))
+                    _ = f[f"data/{demo_key}/obs/agent_view"].shape
+        except (OSError, KeyError) as e:
             print(f"[cross_preferences] Skipping {os.path.basename(cross_file)}: "
-                  f"rollout_A_timestamp '{ts_a}' not found")
+                  f"corrupted HDF5 — {e}")
             n_skip += 1
             continue
-        if ts_b not in ts_map:
-            print(f"[cross_preferences] Skipping {os.path.basename(cross_file)}: "
-                  f"rollout_B_timestamp '{ts_b}' not found")
-            n_skip += 1
-            continue
-
-        hdf5_a, succeeded_a = ts_map[ts_a]
-        hdf5_b, succeeded_b = ts_map[ts_b]
 
         labels = parse_preference_labels(meta["preferences"], preference_keys)
         session = meta.get("session_timestamp", os.path.basename(cross_file))
@@ -421,7 +457,12 @@ def load_cross_preferences(
             ),
         })
 
-    print(f"[cross_preferences] Loaded {len(samples)} samples, "
+    unique_paths = set()
+    for s in samples:
+        unique_paths.add(s["hdf5_a"])
+        unique_paths.add(s["hdf5_b"])
+    print(f"[cross_preferences] Loaded {len(samples)} pairs from {cross_dir} "
+          f"({len(unique_paths)} unique trajectories), "
           f"skipped {n_skip} out of {len(cross_files)} files")
     return samples
 
