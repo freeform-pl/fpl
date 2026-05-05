@@ -6,6 +6,6 @@ exp
 wandb
 diffusion_policy/wandb
 diffusion_policy/data
-diffusion_policy/pipeline_output
+diffusion_policy/pipeline_output*
 slurm/
 __pycache__/

@@ -158,16 +158,29 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
     speed_reward = data['speed_reward']  # (N,)
     smoothness = data['smoothness']  # (N,)
 
-    # K=3 metrics: success, speed, smoothness
-    metrics = np.stack([success, speed_reward, smoothness], axis=-1)  # (N, 3)
+    # Check if peg_reward is available (4-dim metrics)
+    if 'peg_reward' in data:
+        peg_reward = data['peg_reward']  # (N,)
+        metrics = np.stack([success, speed_reward, smoothness, peg_reward], axis=-1)  # (N, 4)
+        reward_names = ['success', 'speed', 'smoothness', 'peg']
+    else:
+        metrics = np.stack([success, speed_reward, smoothness], axis=-1)  # (N, 3)
+        reward_names = ['success', 'speed', 'smoothness']
 
     obs_dim = obs.shape[-1]
-    num_rewards = 3
+    num_rewards = metrics.shape[1]
 
-    print(f"Loaded {len(obs)} rollouts, obs_dim={obs_dim}")
+    print(f"Loaded {len(obs)} rollouts, obs_dim={obs_dim}, num_rewards={num_rewards}")
     print(f"  Success rate: {success.mean():.3f}")
     print(f"  Mean speed:   {speed_reward.mean():.3f}")
     print(f"  Mean smooth:  {smoothness.mean():.3f}")
+    if 'peg_reward' in data:
+        print(f"  Peg: left={np.sum(peg_reward > 0)}, right={np.sum(peg_reward < 0)}, none={np.sum(peg_reward == 0)}")
+    if 'speed_left' in data and 'speed_right' in data:
+        speed_left = data['speed_left']
+        speed_right = data['speed_right']
+        print(f"  Mean speed_left:  {speed_left[speed_left > 0].mean():.3f} ({np.sum(speed_left > 0)} eps)")
+        print(f"  Mean speed_right: {speed_right[speed_right > 0].mean():.3f} ({np.sum(speed_right > 0)} eps)")
 
     # Create dataset and dataloader
     dataset = PreferencePairDataset(
@@ -218,18 +231,18 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
         avg_acc = total_acc / n_batches
 
         # Log to wandb every epoch
-        wandb.log({
+        log_dict = {
             'reward_model/loss': avg_loss,
-            'reward_model/acc_success': avg_acc[0],
-            'reward_model/acc_speed': avg_acc[1],
-            'reward_model/acc_smoothness': avg_acc[2],
             'reward_model/acc_mean': avg_acc.mean(),
             'reward_model/epoch': epoch + 1,
-        }, step=epoch + 1)
+        }
+        for k, name in enumerate(reward_names):
+            log_dict[f'reward_model/acc_{name}'] = avg_acc[k]
+        wandb.log(log_dict, step=epoch + 1)
 
         if (epoch + 1) % 10 == 0 or epoch == 0:
-            print(f"Epoch {epoch+1}/{epochs}  loss={avg_loss:.4f}  "
-                  f"acc=[{avg_acc[0]:.3f}, {avg_acc[1]:.3f}, {avg_acc[2]:.3f}]")
+            acc_str = ', '.join(f'{avg_acc[k]:.3f}' for k in range(num_rewards))
+            print(f"Epoch {epoch+1}/{epochs}  loss={avg_loss:.4f}  acc=[{acc_str}]")
 
     # Save model
     ckpt_path = os.path.join(output_dir, 'reward_model.pt')
@@ -270,7 +283,7 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
     scores = {
         'score_mean': score_mean.tolist(),
         'score_std': score_std.tolist(),
-        'reward_names': ['success', 'speed', 'smoothness'],
+        'reward_names': reward_names,
         'rollout_scores_raw': rollout_scores.tolist(),
         'rollout_scores_zscore': rollout_z.tolist(),
         'demo_scores_raw': demo_scores.tolist(),
@@ -283,6 +296,7 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
         json.dump(scores, f, indent=2)
 
     print(f"\nScoring complete:")
+    print(f"  Reward dims: {reward_names}")
     print(f"  Score mean: {score_mean}")
     print(f"  Score std:  {score_std}")
     print(f"  Rollout z-scores range: [{rollout_z.min(axis=0)}, {rollout_z.max(axis=0)}]")
@@ -290,15 +304,15 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
     print(f"  Saved scores to {scores_path}")
 
     # Log scoring summary to wandb
-    reward_names = ['success', 'speed', 'smoothness']
     for k, name in enumerate(reward_names):
         wandb.summary[f'scoring/score_mean_{name}'] = float(score_mean[k])
         wandb.summary[f'scoring/score_std_{name}'] = float(score_std[k])
         wandb.summary[f'scoring/rollout_zscore_min_{name}'] = float(rollout_z[:, k].min())
         wandb.summary[f'scoring/rollout_zscore_max_{name}'] = float(rollout_z[:, k].max())
-        wandb.summary[f'scoring/demo_zscore_min_{name}'] = float(demo_z[:, k].min())
-        wandb.summary[f'scoring/demo_zscore_max_{name}'] = float(demo_z[:, k].max())
-        wandb.summary[f'scoring/demo_zscore_mean_{name}'] = float(demo_z[:, k].mean())
+        if len(demo_scores) > 0:
+            wandb.summary[f'scoring/demo_zscore_min_{name}'] = float(demo_z[:, k].min())
+            wandb.summary[f'scoring/demo_zscore_max_{name}'] = float(demo_z[:, k].max())
+            wandb.summary[f'scoring/demo_zscore_mean_{name}'] = float(demo_z[:, k].mean())
     wandb.summary['scoring/n_rollouts'] = len(rollout_scores)
     wandb.summary['scoring/n_demos'] = len(demo_scores)
     wandb.finish()

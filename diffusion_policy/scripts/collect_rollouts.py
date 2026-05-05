@@ -48,6 +48,29 @@ def compute_speed_reward(success, steps_taken, max_steps):
     return 1.0 - 0.9 * (steps_taken / max_steps)
 
 
+def classify_peg_from_obs(obs):
+    """
+    Determine peg reward from final obs.
+    obs layout: object(14), robot0_eef_pos(3), robot0_eef_quat(4), robot0_gripper_qpos(2)
+    object[:3] = nut_pos
+    Peg1 (left): [0.23, 0.1, 0.85], Peg2 (right): [0.23, -0.1, 0.85]
+    Returns: +1.0 (left), -1.0 (right), 0.0 (neither)
+    """
+    nut_pos = obs[:3]
+    peg1_pos = np.array([0.23, 0.1, 0.85])
+    peg2_pos = np.array([0.23, -0.1, 0.85])
+    table_z = 0.8
+    if (abs(nut_pos[0] - peg1_pos[0]) < 0.03 and
+        abs(nut_pos[1] - peg1_pos[1]) < 0.03 and
+        nut_pos[2] < table_z + 0.05):
+        return 1.0
+    if (abs(nut_pos[0] - peg2_pos[0]) < 0.03 and
+        abs(nut_pos[1] - peg2_pos[1]) < 0.03 and
+        nut_pos[2] < table_z + 0.05):
+        return -1.0
+    return 0.0
+
+
 @click.command()
 @click.option('--checkpoint', '-c', required=True, help='Path to policy checkpoint')
 @click.option('--n_rollouts', '-n', default=200, type=int, help='Number of rollouts to collect')
@@ -116,6 +139,7 @@ def main(checkpoint, n_rollouts, output_path, max_steps, device, wandb_project):
     all_success = []
     all_speed_reward = []
     all_smoothness = []
+    all_peg_reward = []
 
     print(f"\nCollecting {n_rollouts} rollouts ({n_chunks} chunks, {n_envs} envs, max_steps={actual_max_steps})")
     episode_pbar = tqdm.tqdm(total=n_rollouts, desc="Episodes collected", position=0)
@@ -202,12 +226,17 @@ def main(checkpoint, n_rollouts, output_path, max_steps, device, wandb_project):
             speed_reward = compute_speed_reward(success, first_success_step, actual_max_steps)
             smoothness, _ = compute_smoothness(actions)
 
+            # Peg reward from final obs
+            final_obs = obs_seq[-1]
+            peg_reward = classify_peg_from_obs(final_obs)
+
             all_obs_episodes.append(obs_seq)
             all_action_episodes.append(actions)
             all_episode_lengths.append(len(obs_seq))
             all_success.append(float(success))
             all_speed_reward.append(speed_reward)
             all_smoothness.append(smoothness)
+            all_peg_reward.append(peg_reward)
 
         episode_pbar.update(this_n_active)
         n_collected = len(all_obs_episodes)
@@ -246,17 +275,22 @@ def main(checkpoint, n_rollouts, output_path, max_steps, device, wandb_project):
              episode_lengths=np.array(all_episode_lengths, dtype=np.int32),
              success=np.array(all_success, dtype=np.float32),
              speed_reward=np.array(all_speed_reward, dtype=np.float32),
-             smoothness=np.array(all_smoothness, dtype=np.float32))
+             smoothness=np.array(all_smoothness, dtype=np.float32),
+             peg_reward=np.array(all_peg_reward, dtype=np.float32))
 
+    peg_rewards = np.array(all_peg_reward)
     print(f"\nSaved {n_episodes} rollouts to {output_path}")
     print(f"  Success rate: {np.mean(all_success):.3f}")
     print(f"  Mean speed:   {np.mean(all_speed_reward):.3f}")
     print(f"  Mean smooth:  {np.mean(all_smoothness):.3f}")
+    print(f"  Peg: left={np.sum(peg_rewards > 0)}, right={np.sum(peg_rewards < 0)}, none={np.sum(peg_rewards == 0)}")
 
     # Log final summary to wandb
     wandb.summary['collect/final_success'] = float(np.mean(all_success))
     wandb.summary['collect/final_speed_reward'] = float(np.mean(all_speed_reward))
     wandb.summary['collect/final_smoothness'] = float(np.mean(all_smoothness))
+    wandb.summary['collect/left_peg_count'] = int(np.sum(peg_rewards > 0))
+    wandb.summary['collect/right_peg_count'] = int(np.sum(peg_rewards < 0))
     wandb.summary['collect/n_episodes'] = n_episodes
     wandb.finish()
 
