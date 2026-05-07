@@ -1,9 +1,9 @@
 """
-Reward-conditioned lowdim dataset.
+AWR (Advantage Weighted Regression) lowdim dataset.
 
-Loads rollout data (.npz) + original demo HDF5, augments obs with z-score reward values.
-The obs becomes (T, obs_dim + num_reward_dims). Reward dims use identity normalization
-so z-score values pass through unchanged.
+Loads rollout data (.npz) + original demo HDF5, computes per-episode weights
+from reward model scores. Does NOT augment obs — weights are stored separately
+and applied to the loss during training.
 """
 
 from typing import Dict, List
@@ -16,6 +16,7 @@ import copy
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.dataset.base_dataset import BaseLowdimDataset, LinearNormalizer
 from diffusion_policy.model.common.normalizer import LinearNormalizer, SingleFieldLinearNormalizer
+from diffusion_policy.model.common.rotation_transformer import RotationTransformer
 from diffusion_policy.common.replay_buffer import ReplayBuffer
 from diffusion_policy.common.sampler import (
     SequenceSampler, get_val_mask, downsample_mask)
@@ -23,7 +24,6 @@ from diffusion_policy.common.normalize_util import (
     get_identity_normalizer_from_stat,
     array_to_stats
 )
-from diffusion_policy.model.common.rotation_transformer import RotationTransformer
 
 
 def normalizer_from_stat(stat):
@@ -37,7 +37,7 @@ def normalizer_from_stat(stat):
     )
 
 
-class RewardConditionedLowdimDataset(BaseLowdimDataset):
+class AWRLowdimDataset(BaseLowdimDataset):
     def __init__(self,
             rollout_data_path: str,
             scores_path: str,
@@ -50,11 +50,12 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
                 'robot0_eef_pos',
                 'robot0_eef_quat',
                 'robot0_gripper_qpos'],
-            num_reward_dims: int = None,  # inferred from scores.json if not set
+            beta: float = 1.0,
             seed: int = 42,
             val_ratio: float = 0.0,
             max_train_episodes: int = None,
-            **kwargs,  # absorb extra keys from base task config (dataset_path, abs_action, etc.)
+            num_reward_dims: int = 3,  # absorbed, not used
+            **kwargs,
         ):
         obs_keys = list(obs_keys)
 
@@ -65,12 +66,8 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
         rollout_z = np.array(scores_data['rollout_scores_zscore'], dtype=np.float32)  # (N_rollout, K)
         demo_z = np.array(scores_data['demo_scores_zscore'], dtype=np.float32)  # (N_demo, K)
 
-        # Infer num_reward_dims from scores file
-        if num_reward_dims is None:
-            num_reward_dims = rollout_z.shape[1]
-        print(f"Reward dims: {num_reward_dims} ({scores_data.get('reward_names', [])})")
-
         replay_buffer = ReplayBuffer.create_empty_numpy()
+        episode_weights = []
 
         # Load rollout data
         data = np.load(rollout_data_path)
@@ -80,7 +77,6 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
 
         for i in tqdm(range(len(rollout_obs)), desc="Loading rollout episodes"):
             L_obs = int(rollout_lengths[i])
-            # Actions might be shorter than obs
             L_act = min(L_obs - 1, rollout_actions.shape[1])
             if L_act <= 0:
                 continue
@@ -88,22 +84,21 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
             obs_i = rollout_obs[i, :L_obs].astype(np.float32)
             act_i = rollout_actions[i, :L_act].astype(np.float32)
 
-            # Augment obs with reward z-scores (same for all timesteps)
-            reward_vals = rollout_z[i]  # (K,)
-            reward_aug = np.broadcast_to(reward_vals, (L_obs, num_reward_dims)).copy()
-            obs_aug = np.concatenate([obs_i, reward_aug], axis=-1)  # (T, D+K)
+            L = min(len(obs_i), L_act)
 
-            # Truncate obs to match action length + 1 (actions are 1 shorter than obs)
-            # Actually, just use min of both
-            L = min(len(obs_aug), L_act)
+            avg_score = float(np.mean(rollout_z[i]))
+            episode_weights.append(avg_score)
+            w = np.exp(beta * avg_score)
+            weight_i = np.full((L, 1), w, dtype=np.float32)
+
             episode = {
-                'obs': obs_aug[:L],
+                'obs': obs_i[:L],
                 'action': act_i[:L],
+                'weight': weight_i,
             }
             replay_buffer.add_episode(episode)
 
         # Load original demo data
-        # Detect if action conversion is needed (demo=7D quat vs rollout=10D rot6d)
         rollout_action_dim = rollout_actions.shape[-1]
         rotation_transformer = RotationTransformer(
             from_rep='axis_angle', to_rep='rotation_6d')
@@ -126,19 +121,22 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
                     act_i = np.concatenate([pos, rot6d, gripper], axis=-1).astype(np.float32)
 
                 L = min(len(obs_i), len(act_i))
-                obs_i = obs_i[:L]
-                act_i = act_i[:L]
-
-                # Augment obs with demo reward z-scores
-                reward_vals = demo_z[i]
-                reward_aug = np.broadcast_to(reward_vals, (L, num_reward_dims)).copy()
-                obs_aug = np.concatenate([obs_i, reward_aug], axis=-1)
+                avg_score = float(np.mean(demo_z[i]))
+                episode_weights.append(avg_score)
+                w = np.exp(beta * avg_score)
+                weight_i = np.full((L, 1), w, dtype=np.float32)
 
                 episode = {
-                    'obs': obs_aug,
-                    'action': act_i,
+                    'obs': obs_i[:L],
+                    'action': act_i[:L],
+                    'weight': weight_i,
                 }
                 replay_buffer.add_episode(episode)
+
+        # Log weight stats
+        raw_weights = np.exp(beta * np.array(episode_weights, dtype=np.float32))
+        print(f"AWR weights (beta={beta}): min={raw_weights.min():.3f}, max={raw_weights.max():.3f}, "
+              f"mean={raw_weights.mean():.3f}, std={raw_weights.std():.3f}")
 
         val_mask = get_val_mask(
             n_episodes=replay_buffer.n_episodes,
@@ -163,7 +161,6 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
         self.horizon = horizon
         self.pad_before = pad_before
         self.pad_after = pad_after
-        self.num_reward_dims = num_reward_dims
 
     def get_validation_dataset(self):
         val_set = copy.copy(self)
@@ -179,51 +176,15 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
     def get_normalizer(self, **kwargs) -> LinearNormalizer:
         normalizer = LinearNormalizer()
 
-        # Action: identity normalizer (already normalized actions from policy)
         action_stat = array_to_stats(self.replay_buffer['action'])
         normalizer['action'] = get_identity_normalizer_from_stat(action_stat)
 
-        # Obs: normalize first D dims normally, last K dims with identity
-        all_obs = self.replay_buffer['obs']  # (total_steps, D+K)
-        D = all_obs.shape[-1] - self.num_reward_dims
+        obs_stat = array_to_stats(self.replay_buffer['obs'])
+        normalizer['obs'] = normalizer_from_stat(obs_stat)
 
-        obs_base = all_obs[:, :D]
-        obs_reward = all_obs[:, D:]
-
-        base_stat = array_to_stats(obs_base)
-        reward_stat = array_to_stats(obs_reward)
-
-        # Base obs normalizer
-        base_normalizer = normalizer_from_stat(base_stat)
-        # Reward dims: identity (z-scores pass through)
-        reward_normalizer_params = get_identity_normalizer_from_stat(reward_stat)
-
-        # Combine into single normalizer for full obs
-        # We need to create a combined scale/offset
-        base_params = base_normalizer.get_output_stats()
-        # Actually, let's just create a manual combined normalizer
-        full_stat = array_to_stats(all_obs)
-
-        # Get scale/offset from base normalizer
-        base_sd = base_normalizer.state_dict()
-        # Extract scale and offset from the base normalizer
-        # SingleFieldLinearNormalizer stores params internally
-        # Easier: compute manually
-        max_abs = np.maximum(base_stat['max'].max(), np.abs(base_stat['min']).max())
-        base_scale = np.full(D, fill_value=1.0/max_abs, dtype=np.float32)
-        base_offset = np.zeros(D, dtype=np.float32)
-
-        reward_scale = np.ones(self.num_reward_dims, dtype=np.float32)
-        reward_offset = np.zeros(self.num_reward_dims, dtype=np.float32)
-
-        full_scale = np.concatenate([base_scale, reward_scale])
-        full_offset = np.concatenate([base_offset, reward_offset])
-
-        normalizer['obs'] = SingleFieldLinearNormalizer.create_manual(
-            scale=full_scale,
-            offset=full_offset,
-            input_stats_dict=full_stat
-        )
+        # Weight must pass through unchanged
+        weight_stat = array_to_stats(self.replay_buffer['weight'])
+        normalizer['weight'] = get_identity_normalizer_from_stat(weight_stat)
 
         return normalizer
 

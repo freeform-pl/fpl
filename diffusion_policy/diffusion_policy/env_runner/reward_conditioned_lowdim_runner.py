@@ -15,6 +15,7 @@ import tqdm
 import h5py
 import dill
 import math
+import wandb
 import wandb.sdk.data_types.video as wv
 from diffusion_policy.gym_util.async_vector_env import AsyncVectorEnv
 from diffusion_policy.gym_util.multistep_wrapper import MultiStepWrapper
@@ -64,17 +65,24 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
     - Append target reward values to observations
     """
 
-    def __init__(self, target_rewards, num_reward_dims=3, **kwargs):
+    def __init__(self, num_reward_dims=3, target_rewards=None, use_twopeg_wrapper=False, **kwargs):
         """
         Args:
-            target_rewards: list of K floats — z-score reward values to condition on
             num_reward_dims: number of reward dimensions
+            target_rewards: optional list of K floats — overridden by workspace at eval
+            use_twopeg_wrapper: if True, replace envs with TwoPeg wrapper (for scripted two-peg tasks)
             **kwargs: passed to RobomimicLowdimRunner
         """
         super().__init__(**kwargs)
-        self.target_rewards = np.array(target_rewards, dtype=np.float32)
         self.num_reward_dims = num_reward_dims
-        assert len(self.target_rewards) == num_reward_dims
+        if target_rewards is not None:
+            self.target_rewards = np.array(target_rewards, dtype=np.float32)
+        else:
+            self.target_rewards = np.zeros(num_reward_dims, dtype=np.float32)
+
+        if not use_twopeg_wrapper:
+            # Standard task: keep parent's envs, only add obs augmentation
+            return
 
         # Replace env_fns with two-peg wrapper version
         # Re-read env_meta from dataset_path (same as parent)
@@ -267,6 +275,13 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
         prefix_right_peg = collections.defaultdict(list)
         prefix_speed_left = collections.defaultdict(list)
         prefix_speed_right = collections.defaultdict(list)
+        prefix_throughput = collections.defaultdict(list)
+        prefix_success_left = collections.defaultdict(list)
+        prefix_success_right = collections.defaultdict(list)
+        prefix_score_left = collections.defaultdict(list)
+        prefix_score_right = collections.defaultdict(list)
+        prefix_throughput_left = collections.defaultdict(list)
+        prefix_throughput_right = collections.defaultdict(list)
 
         for i in range(n_inits):
             seed = self.env_seeds[i]
@@ -287,6 +302,9 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
                 speed_reward = 1.0 - 0.9 * (first_success_step / self.max_steps)
             prefix_speed[prefix].append(speed_reward)
 
+            throughput = max_reward / (first_success_step + 1)
+            prefix_throughput[prefix].append(throughput)
+
             smoothness = 1.0
             if len(actions) >= 3:
                 jerk = np.diff(actions, n=3, axis=0)
@@ -294,23 +312,39 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
                 smoothness = float(np.exp(-10.0 * jerk_mag))
             prefix_smoothness[prefix].append(smoothness)
 
+            # visualize sim
+            video_path = all_video_paths[i]
+            if video_path is not None:
+                sim_video = wandb.Video(video_path)
+                log_data[prefix + f'sim_video_{seed}'] = sim_video
+
             # Per-peg tracking from final obs
+            score = success + speed_reward / 0.5 + smoothness / 0.2
             final_obs = all_final_obs[i]
             if final_obs is not None:
                 peg_status = classify_peg_from_obs(final_obs)
                 prefix_left_peg[prefix].append(1.0 if peg_status == 'left' else 0.0)
                 prefix_right_peg[prefix].append(1.0 if peg_status == 'right' else 0.0)
-                # Per-peg speed: only count speed for episodes that landed on that peg
                 if peg_status == 'left':
                     prefix_speed_left[prefix].append(speed_reward)
+                    prefix_success_left[prefix].append(success)
+                    prefix_score_left[prefix].append(score)
+                    prefix_throughput_left[prefix].append(throughput)
                 elif peg_status == 'right':
                     prefix_speed_right[prefix].append(speed_reward)
+                    prefix_success_right[prefix].append(success)
+                    prefix_score_right[prefix].append(score)
+                    prefix_throughput_right[prefix].append(throughput)
 
-        for prefix, value in max_rewards.items():
-            log_data[prefix + 'mean_score'] = np.mean(value)
-            log_data[prefix + 'mean_success'] = np.mean(prefix_success[prefix])
-            log_data[prefix + 'mean_speed_reward'] = np.mean(prefix_speed[prefix])
-            log_data[prefix + 'mean_smoothness'] = np.mean(prefix_smoothness[prefix])
+        for prefix in prefix_success.keys():
+            mean_success = np.mean(prefix_success[prefix])
+            mean_speed = np.mean(prefix_speed[prefix])
+            mean_smoothness = np.mean(prefix_smoothness[prefix])
+            log_data[prefix + 'mean_score'] = mean_success + mean_speed / 0.5 + mean_smoothness / 0.2
+            log_data[prefix + 'mean_success'] = mean_success
+            log_data[prefix + 'mean_speed_reward'] = mean_speed
+            log_data[prefix + 'mean_smoothness'] = mean_smoothness
+            log_data[prefix + 'mean_throughput'] = np.mean(prefix_throughput[prefix])
             if prefix in prefix_left_peg:
                 log_data[prefix + 'left_peg_rate'] = np.mean(prefix_left_peg[prefix])
                 log_data[prefix + 'right_peg_rate'] = np.mean(prefix_right_peg[prefix])
@@ -318,6 +352,18 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
                 log_data[prefix + 'mean_speed_left'] = np.mean(prefix_speed_left[prefix])
             if prefix_speed_right[prefix]:
                 log_data[prefix + 'mean_speed_right'] = np.mean(prefix_speed_right[prefix])
+            if prefix_success_left[prefix]:
+                log_data[prefix + 'mean_success_left'] = np.mean(prefix_success_left[prefix])
+            if prefix_success_right[prefix]:
+                log_data[prefix + 'mean_success_right'] = np.mean(prefix_success_right[prefix])
+            if prefix_score_left[prefix]:
+                log_data[prefix + 'mean_score_left'] = np.mean(prefix_score_left[prefix])
+            if prefix_score_right[prefix]:
+                log_data[prefix + 'mean_score_right'] = np.mean(prefix_score_right[prefix])
+            if prefix_throughput_left[prefix]:
+                log_data[prefix + 'mean_throughput_left'] = np.mean(prefix_throughput_left[prefix])
+            if prefix_throughput_right[prefix]:
+                log_data[prefix + 'mean_throughput_right'] = np.mean(prefix_throughput_right[prefix])
 
         return log_data
 

@@ -29,6 +29,9 @@ import torch
 import numpy as np
 import h5py
 import wandb
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
 
 from state_reward_model import StateRewardModel, bradley_terry_loss
@@ -129,8 +132,10 @@ def load_demo_obs(demo_hdf5, obs_keys, max_demos=None):
 @click.option('--max_demos', default=None, type=int, help='Max original demos to include')
 @click.option('--device', default='cuda:0')
 @click.option('--wandb_project', default='reward_cond_pipeline', help='wandb project name')
+@click.option('--reward_axes', default=None,
+              help='Comma-separated reward axes to use. Any combination of: success,speed_reward,smoothness,peg_reward,composite')
 def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
-         n_pairs, max_seq_len, max_demos, device, wandb_project):
+         n_pairs, max_seq_len, max_demos, device, wandb_project, reward_axes):
     os.makedirs(output_dir, exist_ok=True)
     obs_keys = obs_keys.split(',')
     device = torch.device(device)
@@ -158,14 +163,34 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
     speed_reward = data['speed_reward']  # (N,)
     smoothness = data['smoothness']  # (N,)
 
-    # Check if peg_reward is available (4-dim metrics)
+    # All available axes
+    available = {
+        'success': ('success', success),
+        'speed_reward': ('speed', speed_reward),
+        'smoothness': ('smoothness', smoothness),
+    }
     if 'peg_reward' in data:
-        peg_reward = data['peg_reward']  # (N,)
-        metrics = np.stack([success, speed_reward, smoothness, peg_reward], axis=-1)  # (N, 4)
-        reward_names = ['success', 'speed', 'smoothness', 'peg']
+        available['peg_reward'] = ('peg', data['peg_reward'])
+    available['composite'] = ('composite', success + speed_reward / 0.5 + smoothness / 0.2)
+
+    # Select axes
+    if reward_axes is not None:
+        axes = [a.strip() for a in reward_axes.split(',')]
     else:
-        metrics = np.stack([success, speed_reward, smoothness], axis=-1)  # (N, 3)
-        reward_names = ['success', 'speed', 'smoothness']
+        # Default: all available non-composite axes
+        axes = ['success', 'speed_reward', 'smoothness']
+        if 'peg_reward' in data:
+            axes.append('peg_reward')
+
+    reward_names = []
+    metric_cols = []
+    for ax in axes:
+        if ax not in available:
+            raise ValueError(f"Unknown reward axis '{ax}'. Available: {list(available.keys())}")
+        name, values = available[ax]
+        reward_names.append(name)
+        metric_cols.append(values)
+    metrics = np.stack(metric_cols, axis=-1)  # (N, K)
 
     obs_dim = obs.shape[-1]
     num_rewards = metrics.shape[1]
@@ -175,6 +200,7 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
     print(f"  Mean speed:   {speed_reward.mean():.3f}")
     print(f"  Mean smooth:  {smoothness.mean():.3f}")
     if 'peg_reward' in data:
+        peg_reward = data['peg_reward']
         print(f"  Peg: left={np.sum(peg_reward > 0)}, right={np.sum(peg_reward < 0)}, none={np.sum(peg_reward == 0)}")
     if 'speed_left' in data and 'speed_right' in data:
         speed_left = data['speed_left']
@@ -182,11 +208,32 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
         print(f"  Mean speed_left:  {speed_left[speed_left > 0].mean():.3f} ({np.sum(speed_left > 0)} eps)")
         print(f"  Mean speed_right: {speed_right[speed_right > 0].mean():.3f} ({np.sum(speed_right > 0)} eps)")
 
-    # Create dataset and dataloader
-    dataset = PreferencePairDataset(
+    # Log ground truth metric distributions
+    fig, axes = plt.subplots(1, num_rewards, figsize=(4 * num_rewards, 3), squeeze=False)
+    for k, name in enumerate(reward_names):
+        ax = axes[0, k]
+        ax.hist(metrics[:, k], bins=30, alpha=0.7, edgecolor='black')
+        ax.set_title(f'{name} (ground truth)')
+        ax.set_xlabel('value')
+        ax.set_ylabel('count')
+    fig.suptitle('Ground Truth Metric Distributions')
+    fig.tight_layout()
+    wandb.log({'reward_model/gt_distributions': wandb.Image(fig)})
+    plt.close(fig)
+
+    # Create train/val datasets
+    val_ratio = 0.1
+    n_val_pairs = max(int(n_pairs * val_ratio), 100)
+    n_train_pairs = n_pairs - n_val_pairs
+
+    train_dataset = PreferencePairDataset(
         obs, episode_lengths, metrics,
-        max_seq_len=max_seq_len, n_pairs=n_pairs)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+        max_seq_len=max_seq_len, n_pairs=n_train_pairs, seed=42)
+    val_dataset = PreferencePairDataset(
+        obs, episode_lengths, metrics,
+        max_seq_len=max_seq_len, n_pairs=n_val_pairs, seed=123)
+    dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
 
     # Create model
     model = StateRewardModel(
@@ -230,19 +277,61 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
         avg_loss = total_loss / n_batches
         avg_acc = total_acc / n_batches
 
+        # Validation
+        model.eval()
+        val_total_loss = 0.0
+        val_total_acc = np.zeros(num_rewards)
+        val_n_batches = 0
+        with torch.no_grad():
+            for batch in val_dataloader:
+                obs_a = batch['obs_a'].to(device)
+                obs_b = batch['obs_b'].to(device)
+                mask_a = batch['mask_a'].to(device)
+                mask_b = batch['mask_b'].to(device)
+                labels = batch['labels'].to(device)
+
+                rewards_a = model(obs_a, mask_a)
+                rewards_b = model(obs_b, mask_b)
+                loss_val, acc_val = bradley_terry_loss(rewards_a, rewards_b, labels)
+
+                val_total_loss += loss_val.item()
+                val_total_acc += acc_val.cpu().numpy()
+                val_n_batches += 1
+
+        val_avg_loss = val_total_loss / val_n_batches
+        val_avg_acc = val_total_acc / val_n_batches
+
         # Log to wandb every epoch
         log_dict = {
-            'reward_model/loss': avg_loss,
-            'reward_model/acc_mean': avg_acc.mean(),
+            'reward_model/train_loss': avg_loss,
+            'reward_model/train_acc_mean': avg_acc.mean(),
+            'reward_model/val_loss': val_avg_loss,
+            'reward_model/val_acc_mean': val_avg_acc.mean(),
             'reward_model/epoch': epoch + 1,
         }
         for k, name in enumerate(reward_names):
-            log_dict[f'reward_model/acc_{name}'] = avg_acc[k]
+            log_dict[f'reward_model/train_acc_{name}'] = avg_acc[k]
+            log_dict[f'reward_model/val_acc_{name}'] = val_avg_acc[k]
+        # Log predicted score distributions every 10 epochs
+        if (epoch + 1) % 10 == 0 or epoch == 0 or (epoch + 1) == epochs:
+            pred_scores = score_episodes(model, obs, episode_lengths, max_seq_len, device)
+            fig, axes = plt.subplots(1, num_rewards, figsize=(4 * num_rewards, 3), squeeze=False)
+            for k, name in enumerate(reward_names):
+                ax = axes[0, k]
+                ax.hist(pred_scores[:, k], bins=30, alpha=0.7, edgecolor='black')
+                ax.set_title(f'{name} (predicted)')
+                ax.set_xlabel('score')
+                ax.set_ylabel('count')
+            fig.suptitle(f'Predicted Score Distributions (epoch {epoch+1})')
+            fig.tight_layout()
+            log_dict['reward_model/pred_distributions'] = wandb.Image(fig)
+            plt.close(fig)
+
         wandb.log(log_dict, step=epoch + 1)
 
-        if (epoch + 1) % 10 == 0 or epoch == 0:
-            acc_str = ', '.join(f'{avg_acc[k]:.3f}' for k in range(num_rewards))
-            print(f"Epoch {epoch+1}/{epochs}  loss={avg_loss:.4f}  acc=[{acc_str}]")
+        acc_str = ', '.join(f'{avg_acc[k]:.3f}' for k in range(num_rewards))
+        val_acc_str = ', '.join(f'{val_avg_acc[k]:.3f}' for k in range(num_rewards))
+        print(f"Epoch {epoch+1}/{epochs}  train_loss={avg_loss:.4f}  train_acc=[{acc_str}]  val_loss={val_avg_loss:.4f}  val_acc=[{val_acc_str}]")
 
     # Save model
     ckpt_path = os.path.join(output_dir, 'reward_model.pt')

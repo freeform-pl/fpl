@@ -36,7 +36,9 @@ OBS_KEYS = ['object', 'robot0_eef_pos', 'robot0_eef_quat', 'robot0_gripper_qpos'
 @click.option('--rollout_data', required=True, help='Path to .npz from collect_initial_scripted_rollouts.py')
 @click.option('--demo_hdf5', required=True, help='Path to demos.hdf5 (same data, used for demo_scores in scores.json)')
 @click.option('--output_dir', required=True)
-def main(rollout_data, demo_hdf5, output_dir):
+@click.option('--reward_axes', default=None,
+              help='Comma-separated reward axes. Any combination of: success,speed_reward,smoothness,peg_reward,composite')
+def main(rollout_data, demo_hdf5, output_dir, reward_axes):
     os.makedirs(output_dir, exist_ok=True)
 
     # Load rollout data
@@ -46,9 +48,28 @@ def main(rollout_data, demo_hdf5, output_dir):
     smoothness = data['smoothness']
     peg_reward = data['peg_reward']
 
-    # K=4 metrics: success, speed, smoothness, peg
-    metrics = np.stack([success, speed_reward, smoothness, peg_reward], axis=-1)  # (N, 4)
-    reward_names = ['success', 'speed', 'smoothness', 'peg']
+    available = {
+        'success': ('success', success),
+        'speed_reward': ('speed', speed_reward),
+        'smoothness': ('smoothness', smoothness),
+        'peg_reward': ('peg', peg_reward),
+        'composite': ('composite', success + speed_reward / 0.5 + smoothness / 0.2),
+    }
+
+    if reward_axes is not None:
+        axes = [a.strip() for a in reward_axes.split(',')]
+    else:
+        axes = ['success', 'speed_reward', 'smoothness', 'peg_reward']
+
+    reward_names = []
+    metric_cols = []
+    for ax in axes:
+        if ax not in available:
+            raise ValueError(f"Unknown reward axis '{ax}'. Available: {list(available.keys())}")
+        name, values = available[ax]
+        reward_names.append(name)
+        metric_cols.append(values)
+    metrics = np.stack(metric_cols, axis=-1)
 
     print(f"Loaded {len(metrics)} rollouts")
     print(f"  Success rate: {success.mean():.3f}")

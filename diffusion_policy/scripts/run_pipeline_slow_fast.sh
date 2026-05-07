@@ -27,7 +27,7 @@ N_ROLLOUTS=200          # Number of rollouts from base policy
 N_EVAL_ROLLOUTS=50
 PIPELINE_DIR="pipeline_output_slow_fast"
 BASE_POLICY_EPOCHS=5000
-REWARD_EPOCHS=100
+REWARD_EPOCHS=10
 COND_POLICY_EPOCHS=5000
 WANDB_PROJECT="slow_fast_pipeline"
 NUM_REWARD_DIMS=4       # success, speed, smoothness, peg
@@ -40,8 +40,21 @@ NOISE_MAX=0.12
 SPEED_FACTOR_LEFT=0.6
 SPEED_FACTOR_RIGHT=2.0
 
+# Per-axis eval z-score conditioning (optional, arrays like "[1.5,1.5,1.5,1.5]")
+EVAL_Z_POSITIVE=${EVAL_Z_POSITIVE:-}
+EVAL_Z_NEGATIVE=${EVAL_Z_NEGATIVE:-}
+
+EVAL_Z_OVERRIDES=""
+if [ -n "${EVAL_Z_POSITIVE}" ]; then
+    EVAL_Z_OVERRIDES="${EVAL_Z_OVERRIDES} 'eval_z_positive=${EVAL_Z_POSITIVE}'"
+fi
+if [ -n "${EVAL_Z_NEGATIVE}" ]; then
+    EVAL_Z_OVERRIDES="${EVAL_Z_OVERRIDES} 'eval_z_negative=${EVAL_Z_NEGATIVE}'"
+fi
+
 # Resume from this phase (0=full run)
 RESUME_FROM_PHASE=${RESUME_FROM_PHASE:-0}
+RESUME_FROM_PHASE=4
 
 SCRIPTED_DIR="${PIPELINE_DIR}/scripted_data"
 SCRIPTED_HDF5="${SCRIPTED_DIR}/demos.hdf5"
@@ -82,7 +95,7 @@ else
 fi
 
 # Find the best base policy checkpoint
-BASE_CKPT=$(ls -t data/outputs/**/train_flow_transformer_lowdim_square_twopeg_lowdim/checkpoints/epoch=*-test_mean_score=*.ckpt 2>/dev/null | head -1)
+BASE_CKPT="/iris/u/marcelto/reward_learning/diffusion_policy/data/outputs/2026.05.05/14.14.35_train_flow_transformer_lowdim_square_twopeg_lowdim/checkpoints/epoch=4600-test_mean_score=0.800.ckpt"
 if [ -z "${BASE_CKPT}" ]; then
     echo "ERROR: Could not find base policy checkpoint"
     exit 1
@@ -113,7 +126,8 @@ if [ ${RESUME_FROM_PHASE} -le 3 ]; then
         --demo_hdf5 "${SCRIPTED_HDF5}" \
         --output_dir "${REWARD_DIR}" \
         --epochs ${REWARD_EPOCHS} \
-        --wandb_project "${WANDB_PROJECT}"
+        --wandb_project "${WANDB_PROJECT}" \
+        --reward_axes "success,speed_reward,smoothness,peg_reward"
 else
     echo "=== Phase 3: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
 fi
@@ -123,7 +137,7 @@ fi
 # ============================================================
 if [ ${RESUME_FROM_PHASE} -le 4 ]; then
     echo "=== Phase 4: Training reward-conditioned policy ==="
-    python train.py \
+    eval python train.py \
         --config-name=train_reward_conditioned_flow_transformer_lowdim_workspace.yaml \
         task=square_twopeg_lowdim \
         num_reward_dims=${NUM_REWARD_DIMS} \
@@ -132,17 +146,20 @@ if [ ${RESUME_FROM_PHASE} -le 4 ]; then
         demo_hdf5_path="${SCRIPTED_HDF5}" \
         training.num_epochs=${COND_POLICY_EPOCHS} \
         logging.project="${WANDB_PROJECT}" \
-        'task.env_runner.target_rewards=[0.0,0.0,0.0,0.0]' \
-        task.env_runner.num_reward_dims=${NUM_REWARD_DIMS} \
-        task.dataset.num_reward_dims=${NUM_REWARD_DIMS}
+        hydra.run.dir="${PIPELINE_DIR}/policy_output" \
+        task.env_runner.dataset_path="${SCRIPTED_HDF5}" \
+        task.env_runner.use_twopeg_wrapper=True \
+        ${EVAL_Z_OVERRIDES}
 else
     echo "=== Phase 4: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
 fi
 
-# Find the latest conditioned checkpoint
-COND_CKPT=$(ls -t data/outputs/**/train_reward_conditioned_*/checkpoints/latest.ckpt 2>/dev/null | head -1)
-if [ -z "${COND_CKPT}" ]; then
-    echo "ERROR: Could not find conditioned policy checkpoint"
+# Find the checkpoint from this pipeline's output
+COND_CKPT_DIR="${PIPELINE_DIR}/policy_output/checkpoints"
+if [ -f "${COND_CKPT_DIR}/latest.ckpt" ]; then
+    COND_CKPT="${COND_CKPT_DIR}/latest.ckpt"
+else
+    echo "ERROR: Could not find conditioned policy checkpoint at ${COND_CKPT_DIR}/latest.ckpt"
     exit 1
 fi
 echo "Using conditioned checkpoint: ${COND_CKPT}"

@@ -2,20 +2,13 @@ defaults:
   - task: square_lowdim
   - _self_
 
-name: train_reward_conditioned_flow_transformer_lowdim
-_target_: diffusion_policy.workspace.train_reward_conditioned_flow_transformer_lowdim_workspace.TrainRewardConditionedFlowTransformerLowdimWorkspace
+name: train_demo_success_flow_transformer_lowdim
+_target_: diffusion_policy.workspace.train_flow_transformer_lowdim_workspace.TrainFlowTransformerLowdimWorkspace
 
-# obs_dim = base_obs_dim + num_reward_dims
-# num_reward_dims must match reward model output (K in scores.json)
-num_reward_dims: 3
-obs_dim: ${eval:'${task.obs_dim} + ${num_reward_dims}'}
+obs_dim: ${task.obs_dim}
 action_dim: ${task.action_dim}
 task_name: ${task.name}
 exp_name: "default"
-
-# Per-axis z-score targets for eval sweeps (length must match num_reward_dims)
-eval_z_positive: null   # e.g. [1.5, 1.5, 1.5] — defaults to [1.5]*K if null
-eval_z_negative: null   # e.g. [-1.5, -1.5, -1.5] — defaults to [-1.5]*K if null
 
 horizon: 5
 n_obs_steps: 3
@@ -26,9 +19,8 @@ keypoint_visible_rate: 1.0
 obs_as_cond: True
 pred_action_steps_only: False
 
-# Paths to rollout and reward model data (override on command line)
+# Paths (override on command line)
 rollout_data_path: ???
-scores_path: ???
 demo_hdf5_path: ???
 
 policy:
@@ -92,21 +84,14 @@ optimizer:
   betas: [0.9, 0.95]
 
 task:
-  env_runner:
-    _target_: diffusion_policy.env_runner.reward_conditioned_lowdim_runner.RewardConditionedLowdimRunner
-    target_rewards: [0.0, 0.0, 0.0]
-    num_reward_dims: ${num_reward_dims}
-    use_twopeg_wrapper: False
   dataset:
-    _target_: diffusion_policy.dataset.reward_conditioned_lowdim_dataset.RewardConditionedLowdimDataset
+    _target_: diffusion_policy.dataset.demo_success_lowdim_dataset.DemoSuccessLowdimDataset
     rollout_data_path: ${rollout_data_path}
-    scores_path: ${scores_path}
     demo_hdf5_path: ${demo_hdf5_path}
     horizon: ${horizon}
     pad_before: ${eval:'${n_obs_steps}-1+${n_latency_steps}'}
     pad_after: ${eval:'${n_action_steps}-1'}
     obs_keys: ${task.obs_keys}
-    num_reward_dims: ${num_reward_dims}
     seed: 42
     val_ratio: 0.02
     max_train_episodes: null
@@ -130,7 +115,7 @@ training:
   tqdm_interval_sec: 1.0
 
 logging:
-  project: reward_conditioned_policy
+  project: demo_success_policy
   resume: True
   mode: online
   name: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}

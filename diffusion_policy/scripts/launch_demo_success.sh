@@ -1,0 +1,15 @@
+#!/bin/bash
+#SBATCH --account=iris
+#SBATCH --partition=iris
+#SBATCH --time=48:00:00
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32G
+#SBATCH --gres=gpu:1
+#SBATCH --job-name=demosuccess
+#SBATCH --nodelist=iris4,iris5,iris6,iris7
+#SBATCH --output slurm/%j.out
+
+export BASELINE=demo_success
+export RESUME_FROM_PHASE=2
+bash scripts/run_pipeline.sh

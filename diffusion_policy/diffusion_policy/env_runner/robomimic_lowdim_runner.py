@@ -335,6 +335,7 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
         prefix_success = collections.defaultdict(list)
         prefix_speed = collections.defaultdict(list)
         prefix_smoothness = collections.defaultdict(list)
+        prefix_throughput = collections.defaultdict(list)
 
         for i in range(n_inits):
             seed = self.env_seeds[i]
@@ -343,7 +344,6 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             actions = all_actions[i]
 
             max_reward = np.max(rewards)
-            max_rewards[prefix].append(max_reward)
             log_data[prefix+f'sim_max_reward_{seed}'] = max_reward
 
             # --- success ---
@@ -357,6 +357,10 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             if success:
                 speed_reward = 1.0 - 0.9 * (first_success_step / self.max_steps)
             prefix_speed[prefix].append(speed_reward)
+
+            # --- throughput: max_reward / time_to_first_max_reward ---
+            throughput = max_reward / (first_success_step + 1)
+            prefix_throughput[prefix].append(throughput)
 
             # --- smoothness ---
             smoothness = 1.0
@@ -373,11 +377,15 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                 log_data[prefix+f'sim_video_{seed}'] = sim_video
 
         # log aggregate metrics
-        for prefix, value in max_rewards.items():
-            log_data[prefix+'mean_score'] = np.mean(value)
-            log_data[prefix+'mean_success'] = np.mean(prefix_success[prefix])
-            log_data[prefix+'mean_speed_reward'] = np.mean(prefix_speed[prefix])
-            log_data[prefix+'mean_smoothness'] = np.mean(prefix_smoothness[prefix])
+        for prefix in prefix_success.keys():
+            mean_success = np.mean(prefix_success[prefix])
+            mean_speed = np.mean(prefix_speed[prefix])
+            mean_smoothness = np.mean(prefix_smoothness[prefix])
+            log_data[prefix+'mean_score'] = mean_success + mean_speed / 0.5 + mean_smoothness / 0.2
+            log_data[prefix+'mean_success'] = mean_success
+            log_data[prefix+'mean_speed_reward'] = mean_speed
+            log_data[prefix+'mean_smoothness'] = mean_smoothness
+            log_data[prefix+'mean_throughput'] = np.mean(prefix_throughput[prefix])
 
         return log_data
 

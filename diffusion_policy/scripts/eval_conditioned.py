@@ -95,7 +95,7 @@ def run_conditioned_policy(policy, cfg, n_rollouts, target_z, num_reward_dims, o
 @click.command()
 @click.option('--original_ckpt', required=True, help='Original policy checkpoint')
 @click.option('--conditioned_ckpt', required=True, help='Reward-conditioned policy checkpoint')
-@click.option('--scores_path', required=True, help='Path to scores.json from reward model training')
+@click.option('--scores_path', required=False, default=None, help='Path to scores.json from reward model training')
 @click.option('--n_rollouts', default=50, type=int)
 @click.option('--num_reward_dims', default=3, type=int)
 @click.option('--output_dir', default='eval_conditioned_output')
@@ -118,9 +118,12 @@ def main(original_ckpt, conditioned_ckpt, scores_path, n_rollouts, num_reward_di
     )
 
     # Load scores for reference
-    with open(scores_path, 'r') as f:
-        scores_data = json.load(f)
-    print(f"Reward score stats: mean={scores_data['score_mean']}, std={scores_data['score_std']}")
+    if scores_path and os.path.exists(scores_path):
+        with open(scores_path, 'r') as f:
+            scores_data = json.load(f)
+        print(f"Reward score stats: mean={scores_data['score_mean']}, std={scores_data['score_std']}")
+    else:
+        print("No scores file provided or found, skipping reward score stats.")
 
     results = {}
 
@@ -136,41 +139,47 @@ def main(original_ckpt, conditioned_ckpt, scores_path, n_rollouts, num_reward_di
         'eval/original_speed': results['original']['speed'],
         'eval/original_smoothness': results['original']['smoothness'],
         'eval/original_score': results['original']['score'],
+        'eval/original_throughput': results['original']['throughput'],
     })
     del orig_policy
     torch.cuda.empty_cache()
 
     # 2-4. Conditioned policy at different z-scores
-    cond_policy, cond_cfg = load_policy(conditioned_ckpt, device)
-    for z_val in [1.5, 0.0, -1.5]:
-        label = f"conditioned_z{z_val:+.1f}"
-        print(f"\n{'=' * 60}")
-        print(f"Running CONDITIONED policy @ z={z_val}...")
-        print("=" * 60)
-        cond_log = run_conditioned_policy(
-            cond_policy, cond_cfg, n_rollouts, z_val, num_reward_dims, output_dir, device)
-        results[label] = extract_metrics(cond_log)
-        z_label = f"z{z_val:+.1f}".replace('.', '_').replace('+', 'p').replace('-', 'n')
-        wandb.log({
-            f'eval/{z_label}_success': results[label]['success'],
-            f'eval/{z_label}_speed': results[label]['speed'],
-            f'eval/{z_label}_smoothness': results[label]['smoothness'],
-            f'eval/{z_label}_score': results[label]['score'],
-        })
+    # Skip if conditioned checkpoint is the same as original (e.g. demo_only baseline)
+    if os.path.abspath(conditioned_ckpt) == os.path.abspath(original_ckpt):
+        print("\nConditioned checkpoint is the same as original — skipping conditioned eval.")
+    else:
+        cond_policy, cond_cfg = load_policy(conditioned_ckpt, device)
+        for z_val in [1.5, 0.0, -1.5]:
+            label = f"conditioned_z{z_val:+.1f}"
+            print(f"\n{'=' * 60}")
+            print(f"Running CONDITIONED policy @ z={z_val}...")
+            print("=" * 60)
+            cond_log = run_conditioned_policy(
+                cond_policy, cond_cfg, n_rollouts, z_val, num_reward_dims, output_dir, device)
+            results[label] = extract_metrics(cond_log)
+            z_label = f"z{z_val:+.1f}".replace('.', '_').replace('+', 'p').replace('-', 'n')
+            wandb.log({
+                f'eval/{z_label}_success': results[label]['success'],
+                f'eval/{z_label}_speed': results[label]['speed'],
+                f'eval/{z_label}_smoothness': results[label]['smoothness'],
+                f'eval/{z_label}_score': results[label]['score'],
+                f'eval/{z_label}_throughput': results[label]['throughput'],
+            })
 
-    del cond_policy
-    torch.cuda.empty_cache()
+        del cond_policy
+        torch.cuda.empty_cache()
 
     # Print comparison table
     print("\n" + "=" * 80)
     print("COMPARISON RESULTS")
     print("=" * 80)
-    print(f"{'Policy':<30s} {'Success':>10s} {'Speed':>10s} {'Smoothness':>12s} {'Score':>10s}")
-    print("-" * 80)
+    print(f"{'Policy':<30s} {'Success':>10s} {'Speed':>10s} {'Smoothness':>12s} {'Score':>10s} {'Throughput':>12s}")
+    print("-" * 92)
     for name, metrics in results.items():
         print(f"{name:<30s} {metrics['success']:>10.3f} {metrics['speed']:>10.3f} "
-              f"{metrics['smoothness']:>12.3f} {metrics['score']:>10.3f}")
-    print("=" * 80)
+              f"{metrics['smoothness']:>12.3f} {metrics['score']:>10.3f} {metrics['throughput']:>12.4f}")
+    print("=" * 92)
 
     # Log all results as wandb summary
     for name, metrics in results.items():
@@ -178,10 +187,10 @@ def main(original_ckpt, conditioned_ckpt, scores_path, n_rollouts, num_reward_di
             wandb.summary[f'comparison/{name}/{metric_name}'] = value
 
     # Log comparison table to wandb
-    table = wandb.Table(columns=['policy', 'success', 'speed', 'smoothness', 'score'])
+    table = wandb.Table(columns=['policy', 'success', 'speed', 'smoothness', 'score', 'throughput'])
     for name, metrics in results.items():
         table.add_data(name, metrics['success'], metrics['speed'],
-                       metrics['smoothness'], metrics['score'])
+                       metrics['smoothness'], metrics['score'], metrics['throughput'])
     wandb.log({'eval/comparison_table': table})
 
     # Save results
@@ -200,6 +209,7 @@ def extract_metrics(log_data):
         'speed': log_data.get('test/mean_speed_reward', 0.0),
         'smoothness': log_data.get('test/mean_smoothness', 0.0),
         'score': log_data.get('test/mean_score', 0.0),
+        'throughput': log_data.get('test/mean_throughput', 0.0),
     }
 
 

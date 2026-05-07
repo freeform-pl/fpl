@@ -166,6 +166,9 @@ class FlowTransformerLowdimPolicy(BaseLowdimPolicy):
                 betas=tuple(betas))
 
     def compute_loss(self, batch):
+        # extract AWR weights before normalization (normalizer doesn't know about them)
+        sample_weights = batch.get('weight', None)
+
         # normalize input
         assert 'valid_mask' not in batch
         nbatch = self.normalizer.normalize(batch)
@@ -223,6 +226,12 @@ class FlowTransformerLowdimPolicy(BaseLowdimPolicy):
         # flow matching loss
         loss = F.mse_loss(v_t, u_t, reduction='none')
         loss = loss * loss_mask.type(loss.dtype)
-        loss = reduce(loss, 'b ... -> b (...)', 'mean')
-        loss = loss.mean()
+        loss = reduce(loss, 'b ... -> b', 'mean')  # (B,)
+
+        # AWR per-sample weighting
+        if sample_weights is not None:
+            weights = sample_weights[:, 0, 0]  # (B, T, 1) -> (B,)
+            loss = (loss * weights).sum() / weights.sum()
+        else:
+            loss = loss.mean()
         return loss

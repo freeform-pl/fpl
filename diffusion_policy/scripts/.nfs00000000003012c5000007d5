@@ -71,19 +71,6 @@ ROLLOUT_PATH="${SHARED_DIR}/rollouts.npz"
 PIPELINE_DIR="pipeline_output_${BASELINE}"
 WANDB_PROJECT="reward_cond_${BASELINE}"
 
-# Per-axis eval z-score conditioning (optional, arrays like "[1.5,1.5,1.5]")
-EVAL_Z_POSITIVE=${EVAL_Z_POSITIVE:-}
-EVAL_Z_NEGATIVE=${EVAL_Z_NEGATIVE:-}
-
-# Build extra Hydra overrides for eval z-scores
-EVAL_Z_OVERRIDES=""
-if [ -n "${EVAL_Z_POSITIVE}" ]; then
-    EVAL_Z_OVERRIDES="${EVAL_Z_OVERRIDES} 'eval_z_positive=${EVAL_Z_POSITIVE}'"
-fi
-if [ -n "${EVAL_Z_NEGATIVE}" ]; then
-    EVAL_Z_OVERRIDES="${EVAL_Z_OVERRIDES} 'eval_z_negative=${EVAL_Z_NEGATIVE}'"
-fi
-
 # Resume from this phase (1=full run, 2=skip rollouts, 3=skip reward model, 4=skip policy training)
 RESUME_FROM_PHASE=${RESUME_FROM_PHASE:-1}
 
@@ -144,7 +131,7 @@ elif [ ${RESUME_FROM_PHASE} -le 3 ]; then
             demo_hdf5_path="${DEMO_HDF5}" \
             training.num_epochs=${POLICY_EPOCHS} \
             logging.project="${WANDB_PROJECT}" \
-            hydra.run.dir="${PIPELINE_DIR}/policy_outputv2"
+            hydra.run.dir="${PIPELINE_DIR}/policy_output"
     elif [ "${BASELINE}" = "awr" ]; then
         python train.py \
             --config-name="${COND_CONFIG}" \
@@ -155,9 +142,9 @@ elif [ ${RESUME_FROM_PHASE} -le 3 ]; then
             demo_hdf5_path="${DEMO_HDF5}" \
             training.num_epochs=${POLICY_EPOCHS} \
             logging.project="${WANDB_PROJECT}" \
-            hydra.run.dir="${PIPELINE_DIR}/policy_outputv2"
+            hydra.run.dir="${PIPELINE_DIR}/policy_output"
     else
-        eval python train.py \
+        python train.py \
             --config-name="${COND_CONFIG}" \
             task=square_lowdim \
             task.dataset_type=mh \
@@ -167,8 +154,7 @@ elif [ ${RESUME_FROM_PHASE} -le 3 ]; then
             demo_hdf5_path="${DEMO_HDF5}" \
             training.num_epochs=${POLICY_EPOCHS} \
             logging.project="${WANDB_PROJECT}" \
-            hydra.run.dir="${PIPELINE_DIR}/policy_outputv2" \
-            ${EVAL_Z_OVERRIDES}
+            hydra.run.dir="${PIPELINE_DIR}2/policy_output"
     fi
 else
     echo "=== Phase 3: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="

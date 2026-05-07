@@ -7,7 +7,7 @@
 #SBATCH --mem=32G # Request 8GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
 #SBATCH --job-name=reward_learning # Name the job (for easier monitoring)
-#SBATCH --nodelist=iris7,iris6# Don't run on iris1iris9,iris10,
+#SBATCH --nodelist=iris9,iris10#iris7,iris6# Don't run on iris1iris9,iris10,
 #SBATCH --output slurm/%j.out # MAKE SURE slurm/ ALREADY EXISTS, OR ELSE YOUR JOB WILL FAIL SILENTLY!
 
 # Now your Python or general experiment/job runner code

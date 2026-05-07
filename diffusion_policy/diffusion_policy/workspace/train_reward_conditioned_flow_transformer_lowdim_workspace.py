@@ -110,8 +110,39 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
             output_dir=self.output_dir)
         assert isinstance(env_runner, RewardConditionedLowdimRunner)
 
-        eval_z_values = [0.0, 1.5, -1.5]
-        num_reward_dims = cfg.get('num_reward_dims', 3)
+        # Per-axis z-score targets: each entry is an array of length num_reward_dims
+        # Configured via eval_z_positive / eval_z_negative (null = default ±1.5)
+        z_pos = cfg.get('eval_z_positive', None)
+        z_neg = cfg.get('eval_z_negative', None)
+        # Infer num_reward_dims from scores.json
+        import json
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+
+        with open(cfg.scores_path, 'r') as f:
+            scores_meta = json.load(f)
+        num_reward_dims = len(scores_meta['reward_names'])
+        env_runner.num_reward_dims = num_reward_dims
+        print(f"Reward dims: {num_reward_dims} ({scores_meta['reward_names']})")
+
+        # Build eval z-score targets: list of (label, array_of_length_K)
+        z_zero = np.zeros(num_reward_dims, dtype=np.float32)
+        if z_pos is not None:
+            z_positive = np.array(z_pos, dtype=np.float32)
+        else:
+            z_positive = np.full(num_reward_dims, 1.5, dtype=np.float32)
+        if z_neg is not None:
+            z_negative = np.array(z_neg, dtype=np.float32)
+        else:
+            z_negative = np.full(num_reward_dims, -1.5, dtype=np.float32)
+
+        eval_z_targets = [
+            ('z_zero', z_zero),
+            ('z_pos', z_positive),
+            ('z_neg', z_negative),
+        ]
+        print(f"Eval z targets: zero={z_zero}, pos={z_positive}, neg={z_negative}")
 
         # configure logging
         wandb_run = wandb.init(
@@ -124,6 +155,26 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
                 "output_dir": self.output_dir,
             }
         )
+
+        # Log z-score distributions of the training dataset
+        reward_names = scores_meta['reward_names']
+        rollout_z = np.array(scores_meta['rollout_scores_zscore'])
+        demo_z = np.array(scores_meta['demo_scores_zscore'])
+        all_z = np.concatenate([rollout_z, demo_z], axis=0)
+
+        fig, axes = plt.subplots(1, num_reward_dims, figsize=(4 * num_reward_dims, 3), squeeze=False)
+        for k in range(num_reward_dims):
+            ax = axes[0, k]
+            ax.hist(rollout_z[:, k], bins=30, alpha=0.6, label='rollouts', edgecolor='black')
+            ax.hist(demo_z[:, k], bins=30, alpha=0.6, label='demos', edgecolor='black')
+            ax.set_title(f'{reward_names[k]} z-scores')
+            ax.set_xlabel('z-score')
+            ax.set_ylabel('count')
+            ax.legend(fontsize=8)
+        fig.suptitle('Conditioning Z-Score Distributions (Training Data)')
+        fig.tight_layout()
+        wandb_run.log({'dataset/zscore_distributions': wandb.Image(fig)})
+        plt.close(fig)
 
         # configure checkpoint
         topk_manager = TopKCheckpointManager(
@@ -217,25 +268,22 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
                 if (self.epoch % cfg.training.rollout_every) == 0:
                     metric_lines = []
 
-                    for z_val in eval_z_values:
+                    for z_label, z_target in eval_z_targets:
                         # Swap target rewards on the single runner
-                        env_runner.target_rewards = np.array(
-                            [z_val] * num_reward_dims, dtype=np.float32)
+                        env_runner.target_rewards = z_target.copy()
 
                         z_log = env_runner.run(policy)
-                        z_label = f"z{z_val:+.1f}".replace('.', '_').replace('+', 'p').replace('-', 'n')
 
-                        if z_val == 0.0:
+                        if z_label == 'z_zero':
                             # Use z=0 as the main metrics for checkpointing
                             step_log.update(z_log)
                         for key, value in z_log.items():
-                            if isinstance(value, (int, float)):
-                                step_log[f'{z_label}/{key}'] = value
+                            step_log[f'{z_label}/{key}'] = value
 
                         for prefix in ['train/', 'test/']:
                             if prefix+'mean_score' in z_log:
                                 metric_lines.append(
-                                    f"  z={z_val:+.1f} {prefix:<7s} score={z_log[prefix+'mean_score']:.3f}  "
+                                    f"  {z_label} {prefix:<7s} score={z_log[prefix+'mean_score']:.3f}  "
                                     f"success={z_log.get(prefix+'mean_success', 0):.3f}  "
                                     f"speed={z_log.get(prefix+'mean_speed_reward', 0):.3f}  "
                                     f"smoothness={z_log.get(prefix+'mean_smoothness', 0):.3f}"
