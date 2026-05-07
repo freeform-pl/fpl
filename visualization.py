@@ -271,11 +271,12 @@ def visualize_top_bottom_trajectories(
 
     for k, key in enumerate(preference_keys):
         sorted_idx = np.argsort(rewards_all[:, k])
+        safe_key = key.replace("/", "_").replace(" ", "_")
 
         # --- top / bottom ---
         bottom_entries = [entries[i] for i in sorted_idx[:n]]
         top_entries    = [entries[i] for i in sorted_idx[-n:][::-1]]
-        fname_tb = os.path.join(out_dir, f"step{step:06d}_top_bottom_{key}.mp4")
+        fname_tb = os.path.join(out_dir, f"step{step:06d}_top_bottom_{safe_key}.mp4")
         _save_video(
             row_groups=[top_entries, bottom_entries],
             row_labels=["High reward", "Low reward"],
@@ -288,7 +289,7 @@ def visualize_top_bottom_trajectories(
         # --- uniform spectrum ---
         uniform_pick = np.round(np.linspace(0, N - 1, min(n_uniform, N))).astype(int)
         uniform_entries = [entries[sorted_idx[i]] for i in uniform_pick]
-        fname_uni = os.path.join(out_dir, f"step{step:06d}_uniform_{key}.mp4")
+        fname_uni = os.path.join(out_dir, f"step{step:06d}_uniform_{safe_key}.mp4")
         _save_video(
             row_groups=[uniform_entries],
             row_labels=["Uniform"],
