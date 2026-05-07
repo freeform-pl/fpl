@@ -34,7 +34,7 @@ DEMO_HDF5="data/robomimic/datasets/square/mh/low_dim.hdf5"
 N_ROLLOUTS=200
 N_EVAL_ROLLOUTS=50
 REWARD_EPOCHS=10
-POLICY_EPOCHS=5000
+POLICY_EPOCHS=500
 
 # Baseline: "rhp", "single_pref", "awr", "demo_success", "demo_only"
 BASELINE=${BASELINE:-rhp}

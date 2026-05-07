@@ -534,7 +534,7 @@ def main(output_dir, num_episodes, seed, noise_min, noise_max, speed_factor_left
         ep_steps = len(action_list)
         ep_smoothness = compute_smoothness(action_array_ep)
         ep_speed = compute_speed_reward(ep_steps)
-        ep_peg = 1.0 if policy.target_peg == 'left' else -1.0
+        ep_peg = -1.0 if policy.target_peg == 'left' else 1.0
         print(f"Episode {ep_num} complete: steps={ep_steps}, peg={policy.target_peg}({ep_peg:+.0f}), "
               f"speed={ep_speed:.3f}, smoothness={ep_smoothness:.3f}, noise={noise:.4f}")
 
@@ -630,9 +630,9 @@ def save_npz_from_hdf5(output_dir):
             all_speed.append(speed)
             all_smoothness.append(compute_smoothness(actions[:L]))
 
-            # Peg reward: +1 for left peg, -1 for right peg
+            # Peg reward: +1 for right peg, -1 for left peg
             target_peg = demo.attrs.get('target_peg', 'left')
-            all_peg_reward.append(1.0 if target_peg == 'left' else -1.0)
+            all_peg_reward.append(1.0 if target_peg == 'right' else -1.0)
 
             # Per-peg speed: speed for matching peg, 0 for the other
             all_speed_left.append(speed if target_peg == 'left' else 0.0)

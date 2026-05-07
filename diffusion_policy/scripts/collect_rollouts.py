@@ -54,7 +54,7 @@ def classify_peg_from_obs(obs):
     obs layout: object(14), robot0_eef_pos(3), robot0_eef_quat(4), robot0_gripper_qpos(2)
     object[:3] = nut_pos
     Peg1 (left): [0.23, 0.1, 0.85], Peg2 (right): [0.23, -0.1, 0.85]
-    Returns: +1.0 (left), -1.0 (right), 0.0 (neither)
+    Returns: -1.0 (left), +1.0 (right), 0.0 (neither)
     """
     nut_pos = obs[:3]
     peg1_pos = np.array([0.23, 0.1, 0.85])
@@ -63,11 +63,11 @@ def classify_peg_from_obs(obs):
     if (abs(nut_pos[0] - peg1_pos[0]) < 0.03 and
         abs(nut_pos[1] - peg1_pos[1]) < 0.03 and
         nut_pos[2] < table_z + 0.05):
-        return 1.0
+        return -1.0
     if (abs(nut_pos[0] - peg2_pos[0]) < 0.03 and
         abs(nut_pos[1] - peg2_pos[1]) < 0.03 and
         nut_pos[2] < table_z + 0.05):
-        return -1.0
+        return 1.0
     return 0.0
 
 

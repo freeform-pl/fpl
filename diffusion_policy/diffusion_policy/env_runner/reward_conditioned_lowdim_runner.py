@@ -319,20 +319,21 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
                 log_data[prefix + f'sim_video_{seed}'] = sim_video
 
             # Per-peg tracking from final obs
-            score = success + speed_reward / 0.5 + smoothness / 0.2
+            score = (success + speed_reward + smoothness) / 3
             final_obs = all_final_obs[i]
             if final_obs is not None:
                 peg_status = classify_peg_from_obs(final_obs)
                 prefix_left_peg[prefix].append(1.0 if peg_status == 'left' else 0.0)
                 prefix_right_peg[prefix].append(1.0 if peg_status == 'right' else 0.0)
+                # success_left/right = successfully placed on that peg (over all trials)
+                prefix_success_left[prefix].append(1.0 if (success and peg_status == 'left') else 0.0)
+                prefix_success_right[prefix].append(1.0 if (success and peg_status == 'right') else 0.0)
                 if peg_status == 'left':
                     prefix_speed_left[prefix].append(speed_reward)
-                    prefix_success_left[prefix].append(success)
                     prefix_score_left[prefix].append(score)
                     prefix_throughput_left[prefix].append(throughput)
                 elif peg_status == 'right':
                     prefix_speed_right[prefix].append(speed_reward)
-                    prefix_success_right[prefix].append(success)
                     prefix_score_right[prefix].append(score)
                     prefix_throughput_right[prefix].append(throughput)
 
@@ -340,7 +341,7 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
             mean_success = np.mean(prefix_success[prefix])
             mean_speed = np.mean(prefix_speed[prefix])
             mean_smoothness = np.mean(prefix_smoothness[prefix])
-            log_data[prefix + 'mean_score'] = mean_success + mean_speed / 0.5 + mean_smoothness / 0.2
+            log_data[prefix + 'mean_score'] = (mean_success + mean_speed + mean_smoothness) / 3
             log_data[prefix + 'mean_success'] = mean_success
             log_data[prefix + 'mean_speed_reward'] = mean_speed
             log_data[prefix + 'mean_smoothness'] = mean_smoothness

@@ -381,7 +381,7 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             mean_success = np.mean(prefix_success[prefix])
             mean_speed = np.mean(prefix_speed[prefix])
             mean_smoothness = np.mean(prefix_smoothness[prefix])
-            log_data[prefix+'mean_score'] = mean_success + mean_speed / 0.5 + mean_smoothness / 0.2
+            log_data[prefix+'mean_score'] = (mean_success + mean_speed + mean_smoothness) / 3
             log_data[prefix+'mean_success'] = mean_success
             log_data[prefix+'mean_speed_reward'] = mean_speed
             log_data[prefix+'mean_smoothness'] = mean_smoothness

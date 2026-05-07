@@ -53,7 +53,7 @@ def main(rollout_data, demo_hdf5, output_dir, reward_axes):
         'speed_reward': ('speed', speed_reward),
         'smoothness': ('smoothness', smoothness),
         'peg_reward': ('peg', peg_reward),
-        'composite': ('composite', success + speed_reward / 0.5 + smoothness / 0.2),
+        'composite': ('composite', (success + speed_reward + smoothness) / 3),
     }
 
     if reward_axes is not None:

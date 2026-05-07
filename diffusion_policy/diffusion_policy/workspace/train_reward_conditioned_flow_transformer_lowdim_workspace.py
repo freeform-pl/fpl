@@ -167,6 +167,8 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
             ax = axes[0, k]
             ax.hist(rollout_z[:, k], bins=30, alpha=0.6, label='rollouts', edgecolor='black')
             ax.hist(demo_z[:, k], bins=30, alpha=0.6, label='demos', edgecolor='black')
+            ax.axvline(z_positive[k], color='green', linestyle='--', linewidth=1.5, label=f'pos={z_positive[k]:.1f}')
+            ax.axvline(z_negative[k], color='red', linestyle='--', linewidth=1.5, label=f'neg={z_negative[k]:.1f}')
             ax.set_title(f'{reward_names[k]} z-scores')
             ax.set_xlabel('z-score')
             ax.set_ylabel('count')
