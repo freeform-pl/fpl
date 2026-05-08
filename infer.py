@@ -34,6 +34,7 @@ from dataset import load_trajectory
 from model import RewardModel, DiscountedRewardModel
 from flow_model import RewardModel as FlowRewardModel
 from tasks import TASKS
+from analyze import RewardData, plot_scatter_matrix, plot_dim_histograms
 
 
 N_BUCKETS = 5
@@ -679,6 +680,13 @@ def main():
         quantile_edges=qedges_matrix.astype(np.float32),
     )
     print(f"Data saved → {npz_path}")
+
+    # --- Analysis plots ---
+    analysis_dir = args.output_dir or vis_dir
+    os.makedirs(analysis_dir, exist_ok=True)
+    rd = RewardData(npz_path)
+    plot_scatter_matrix(rd, os.path.join(analysis_dir, f"{prefix}_scatter_matrix.png"))
+    plot_dim_histograms(rd, os.path.join(analysis_dir, f"{prefix}_dim_histograms.png"))
 
     if args.wandb:
         import wandb

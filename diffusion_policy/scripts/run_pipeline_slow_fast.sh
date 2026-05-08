@@ -145,9 +145,9 @@ if [ "${SKIP_POLICY_TRAINING}" = "true" ]; then
     echo "=== Phase 4: SKIPPED (not needed for this baseline) ==="
 elif [ ${RESUME_FROM_PHASE} -le 4 ]; then
     echo "=== Phase 4: Training policy ==="
-    REWARD_OVERRIDES=""
+    EXTRA_OVERRIDES=""
     if [ "${SKIP_REWARD_MODEL}" != "true" ]; then
-        REWARD_OVERRIDES="++num_reward_dims=${NUM_REWARD_DIMS} ++scores_path=${SCORES_PATH}"
+        EXTRA_OVERRIDES="++num_reward_dims=${NUM_REWARD_DIMS} ++scores_path=${SCORES_PATH} ++task.env_runner.use_twopeg_wrapper=True"
     fi
     eval python train.py \
         --config-name="${COND_CONFIG}" \
@@ -158,8 +158,7 @@ elif [ ${RESUME_FROM_PHASE} -le 4 ]; then
         logging.project="${WANDB_PROJECT}" \
         hydra.run.dir="${PIPELINE_DIR}/policy_output" \
         task.env_runner.dataset_path="${SCRIPTED_HDF5}" \
-        ++task.env_runner.use_twopeg_wrapper=True \
-        ${REWARD_OVERRIDES} \
+        ${EXTRA_OVERRIDES} \
         ${EVAL_Z_OVERRIDES}
 else
     echo "=== Phase 4: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="

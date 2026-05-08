@@ -316,6 +316,8 @@ def plot_reward_correlation(rewards: np.ndarray, preference_keys: list) -> "plt.
     std = np.where(std < 1e-8, 1.0, std)
     z = (rewards - rewards.mean(axis=0, keepdims=True)) / std  # (N, K)
     corr = np.corrcoef(z.T)  # (K, K)
+    if corr.ndim == 0:
+        corr = corr.reshape(1, 1)
 
     fig, ax = plt.subplots(figsize=(max(4, K * 1.1), max(3.5, K * 1.0)))
     im = ax.imshow(corr, vmin=-1, vmax=1, cmap="RdBu_r", aspect="auto")
