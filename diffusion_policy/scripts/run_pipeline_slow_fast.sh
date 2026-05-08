@@ -35,6 +35,7 @@ REWARD_AXES=${REWARD_AXES:-"speed_reward,smoothness,peg_reward"}
 COND_CONFIG=${COND_CONFIG:-"train_reward_conditioned_flow_transformer_lowdim_workspace.yaml"}
 SKIP_REWARD_MODEL=${SKIP_REWARD_MODEL:-false}
 SKIP_POLICY_TRAINING=${SKIP_POLICY_TRAINING:-false}
+IS_CONDITIONED_EVAL=${IS_CONDITIONED_EVAL:-true}
 
 # Noise range for scripted trajectory smoothness variation
 NOISE_MIN=0.0
@@ -147,7 +148,10 @@ elif [ ${RESUME_FROM_PHASE} -le 4 ]; then
     echo "=== Phase 4: Training policy ==="
     EXTRA_OVERRIDES=""
     if [ "${SKIP_REWARD_MODEL}" != "true" ]; then
-        EXTRA_OVERRIDES="++num_reward_dims=${NUM_REWARD_DIMS} ++scores_path=${SCORES_PATH} ++task.env_runner.use_twopeg_wrapper=True"
+        EXTRA_OVERRIDES="++num_reward_dims=${NUM_REWARD_DIMS} ++scores_path=${SCORES_PATH}"
+    fi
+    if [ "${IS_CONDITIONED_EVAL}" = "true" ]; then
+        EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++task.env_runner.use_twopeg_wrapper=True"
     fi
     eval python train.py \
         --config-name="${COND_CONFIG}" \
@@ -181,9 +185,15 @@ echo "Using conditioned checkpoint: ${COND_CKPT}"
 # ============================================================
 if [ ${RESUME_FROM_PHASE} -le 5 ]; then
     echo "=== Phase 5: Evaluation ==="
-    EVAL_ARGS="--original_ckpt ${BASE_CKPT} --conditioned_ckpt ${COND_CKPT} --n_rollouts ${N_EVAL_ROLLOUTS} --output_dir ${PIPELINE_DIR}/eval --wandb_project ${WANDB_PROJECT}"
+    EVAL_ARGS="--original_ckpt ${BASE_CKPT} --conditioned_ckpt ${COND_CKPT} --n_rollouts ${N_EVAL_ROLLOUTS} --output_dir ${PIPELINE_DIR}/eval --wandb_project ${WANDB_PROJECT} --num_reward_dims ${NUM_REWARD_DIMS}"
     if [ -f "${SCORES_PATH}" ]; then
         EVAL_ARGS="${EVAL_ARGS} --scores_path ${SCORES_PATH}"
+    fi
+    if [ -n "${EVAL_Z_POSITIVE}" ]; then
+        EVAL_ARGS="${EVAL_ARGS} --eval_z_positive ${EVAL_Z_POSITIVE}"
+    fi
+    if [ -n "${EVAL_Z_NEGATIVE}" ]; then
+        EVAL_ARGS="${EVAL_ARGS} --eval_z_negative ${EVAL_Z_NEGATIVE}"
     fi
     python scripts/eval_conditioned.py ${EVAL_ARGS}
 else

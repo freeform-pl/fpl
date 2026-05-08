@@ -14,6 +14,7 @@
 export PIPELINE_DIR="pipeline_output_slow_fast_awr"
 export WANDB_PROJECT="slow_fast_awr"
 export COND_CONFIG="train_awr_flow_transformer_lowdim_workspace.yaml"
-export RESUME_FROM_PHASE=1
+export IS_CONDITIONED_EVAL=false
+export RESUME_FROM_PHASE=4
 
 bash scripts/run_pipeline_slow_fast.sh

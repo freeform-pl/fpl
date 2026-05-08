@@ -15,6 +15,7 @@ export PIPELINE_DIR="pipeline_output_slow_fast_demo_success"
 export WANDB_PROJECT="slow_fast_demo_success"
 export COND_CONFIG="train_demo_success_flow_transformer_lowdim_workspace.yaml"
 export SKIP_REWARD_MODEL=true
+export IS_CONDITIONED_EVAL=false
 export RESUME_FROM_PHASE=1
 
 bash scripts/run_pipeline_slow_fast.sh

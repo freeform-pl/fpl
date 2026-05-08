@@ -1,11 +1,8 @@
 """
 Compare original policy vs reward-conditioned policy at different conditioning values.
 
-Runs 4 sets of rollouts:
-  1. Original policy (no conditioning)
-  2. Conditioned policy @ z=1.5 (high reward)
-  3. Conditioned policy @ z=0.0 (average)
-  4. Conditioned policy @ z=-1.5 (low reward)
+Evaluates at z_positive, z_zero, z_negative (per-axis), matching the training-time eval.
+Logs all metrics including per-peg success/speed/throughput for slow_fast setups.
 
 Usage:
   python scripts/eval_conditioned.py \
@@ -70,11 +67,9 @@ def run_original_policy(policy, cfg, n_rollouts, output_dir, device):
     return log_data
 
 
-def run_conditioned_policy(policy, cfg, n_rollouts, target_z, num_reward_dims, output_dir, device):
-    """Run conditioned policy with given z-score reward targets."""
+def run_conditioned_policy(policy, cfg, n_rollouts, target_z_array, num_reward_dims, output_dir, device):
+    """Run conditioned policy with given per-axis z-score reward targets."""
     runner_cfg = cfg.task.env_runner
-    # We need to create a RewardConditionedLowdimRunner manually
-    # Extract runner kwargs from cfg
     runner_kwargs = OmegaConf.to_container(runner_cfg, resolve=True)
     runner_kwargs.pop('_target_', None)
     runner_kwargs['output_dir'] = output_dir
@@ -83,13 +78,41 @@ def run_conditioned_policy(policy, cfg, n_rollouts, target_z, num_reward_dims, o
     runner_kwargs['n_test'] = n_rollouts
     runner_kwargs['n_test_vis'] = 0
 
-    target_rewards = [target_z] * num_reward_dims
     runner = RewardConditionedLowdimRunner(
-        target_rewards=target_rewards,
+        target_rewards=target_z_array.tolist(),
         num_reward_dims=num_reward_dims,
         **runner_kwargs)
     log_data = runner.run(policy)
     return log_data
+
+
+METRIC_KEYS = [
+    'mean_success', 'mean_speed_reward', 'mean_smoothness',
+    'mean_score', 'mean_throughput',
+    'mean_success_left', 'mean_success_right',
+    'mean_speed_left', 'mean_speed_right',
+    'mean_throughput_left', 'mean_throughput_right',
+    'mean_score_left', 'mean_score_right',
+    'left_peg_rate', 'right_peg_rate',
+]
+
+
+def extract_metrics(log_data):
+    """Extract all test metrics from runner log data."""
+    metrics = {}
+    for key in METRIC_KEYS:
+        full_key = f'test/{key}'
+        if full_key in log_data:
+            metrics[key] = log_data[full_key]
+    return metrics
+
+
+def log_metrics_to_wandb(metrics, prefix):
+    """Log all extracted metrics to wandb under a prefix."""
+    log_dict = {}
+    for key, value in metrics.items():
+        log_dict[f'eval/{prefix}_{key}'] = value
+    wandb.log(log_dict)
 
 
 @click.command()
@@ -98,32 +121,54 @@ def run_conditioned_policy(policy, cfg, n_rollouts, target_z, num_reward_dims, o
 @click.option('--scores_path', required=False, default=None, help='Path to scores.json from reward model training')
 @click.option('--n_rollouts', default=50, type=int)
 @click.option('--num_reward_dims', default=3, type=int)
+@click.option('--eval_z_positive', default=None, type=str, help='Per-axis positive z-targets, e.g. "[1.0,1.0,1.0]"')
+@click.option('--eval_z_negative', default=None, type=str, help='Per-axis negative z-targets, e.g. "[-1.0,-1.0,-1.0]"')
 @click.option('--output_dir', default='eval_conditioned_output')
 @click.option('--device', default='cuda:0')
 @click.option('--wandb_project', default='reward_cond_pipeline', help='wandb project name')
-def main(original_ckpt, conditioned_ckpt, scores_path, n_rollouts, num_reward_dims, output_dir, device, wandb_project):
+def main(original_ckpt, conditioned_ckpt, scores_path, n_rollouts, num_reward_dims,
+         eval_z_positive, eval_z_negative, output_dir, device, wandb_project):
     os.makedirs(output_dir, exist_ok=True)
     device = torch.device(device)
+
+    # Determine num_reward_dims from scores.json if available
+    if scores_path and os.path.exists(scores_path):
+        with open(scores_path, 'r') as f:
+            scores_data = json.load(f)
+        num_reward_dims = len(scores_data['reward_names'])
+        print(f"Reward score stats: mean={scores_data['score_mean']}, std={scores_data['score_std']}")
+        print(f"Reward dims: {num_reward_dims} ({scores_data['reward_names']})")
+    else:
+        print("No scores file provided or found, skipping reward score stats.")
+
+    # Build per-axis z-targets (matching training-time eval)
+    z_zero = np.zeros(num_reward_dims, dtype=np.float32)
+    if eval_z_positive is not None:
+        z_positive = np.array(json.loads(eval_z_positive), dtype=np.float32)
+    else:
+        z_positive = np.full(num_reward_dims, 1.5, dtype=np.float32)
+    if eval_z_negative is not None:
+        z_negative = np.array(json.loads(eval_z_negative), dtype=np.float32)
+    else:
+        z_negative = np.full(num_reward_dims, -1.5, dtype=np.float32)
+
+    print(f"z_positive: {z_positive}")
+    print(f"z_zero:     {z_zero}")
+    print(f"z_negative: {z_negative}")
 
     # Init wandb
     wandb.init(
         project=wandb_project,
-        name='phase4_eval_comparison',
+        name='phase5_eval_comparison',
         config={
             'original_ckpt': original_ckpt,
             'conditioned_ckpt': conditioned_ckpt,
             'n_rollouts': n_rollouts,
             'num_reward_dims': num_reward_dims,
+            'z_positive': z_positive.tolist(),
+            'z_negative': z_negative.tolist(),
         },
     )
-
-    # Load scores for reference
-    if scores_path and os.path.exists(scores_path):
-        with open(scores_path, 'r') as f:
-            scores_data = json.load(f)
-        print(f"Reward score stats: mean={scores_data['score_mean']}, std={scores_data['score_std']}")
-    else:
-        print("No scores file provided or found, skipping reward score stats.")
 
     results = {}
 
@@ -134,52 +179,66 @@ def main(original_ckpt, conditioned_ckpt, scores_path, n_rollouts, num_reward_di
     orig_policy, orig_cfg = load_policy(original_ckpt, device)
     orig_log = run_original_policy(orig_policy, orig_cfg, n_rollouts, output_dir, device)
     results['original'] = extract_metrics(orig_log)
-    wandb.log({
-        'eval/original_success': results['original']['success'],
-        'eval/original_speed': results['original']['speed'],
-        'eval/original_smoothness': results['original']['smoothness'],
-        'eval/original_score': results['original']['score'],
-        'eval/original_throughput': results['original']['throughput'],
-    })
+    log_metrics_to_wandb(results['original'], 'original')
     del orig_policy
     torch.cuda.empty_cache()
 
-    # 2-4. Conditioned policy at different z-scores
+    # 2-4. Conditioned policy at z_pos, z_zero, z_neg
     # Skip if conditioned checkpoint is the same as original (e.g. demo_only baseline)
     if os.path.abspath(conditioned_ckpt) == os.path.abspath(original_ckpt):
         print("\nConditioned checkpoint is the same as original — skipping conditioned eval.")
     else:
         cond_policy, cond_cfg = load_policy(conditioned_ckpt, device)
-        for z_val in [1.5, 0.0, -1.5]:
-            label = f"conditioned_z{z_val:+.1f}"
+        for z_label, z_target in [('z_pos', z_positive), ('z_zero', z_zero), ('z_neg', z_negative)]:
             print(f"\n{'=' * 60}")
-            print(f"Running CONDITIONED policy @ z={z_val}...")
+            print(f"Running CONDITIONED policy @ {z_label}={z_target}...")
             print("=" * 60)
             cond_log = run_conditioned_policy(
-                cond_policy, cond_cfg, n_rollouts, z_val, num_reward_dims, output_dir, device)
-            results[label] = extract_metrics(cond_log)
-            z_label = f"z{z_val:+.1f}".replace('.', '_').replace('+', 'p').replace('-', 'n')
-            wandb.log({
-                f'eval/{z_label}_success': results[label]['success'],
-                f'eval/{z_label}_speed': results[label]['speed'],
-                f'eval/{z_label}_smoothness': results[label]['smoothness'],
-                f'eval/{z_label}_score': results[label]['score'],
-                f'eval/{z_label}_throughput': results[label]['throughput'],
-            })
+                cond_policy, cond_cfg, n_rollouts, z_target, num_reward_dims, output_dir, device)
+            results[z_label] = extract_metrics(cond_log)
+            log_metrics_to_wandb(results[z_label], z_label)
 
         del cond_policy
         torch.cuda.empty_cache()
 
     # Print comparison table
-    print("\n" + "=" * 80)
-    print("COMPARISON RESULTS")
-    print("=" * 80)
-    print(f"{'Policy':<30s} {'Success':>10s} {'Speed':>10s} {'Smoothness':>12s} {'Score':>10s} {'Throughput':>12s}")
-    print("-" * 92)
+    core_keys = ['mean_success', 'mean_speed_reward', 'mean_smoothness', 'mean_score', 'mean_throughput']
+    peg_keys = ['mean_success_left', 'mean_success_right', 'mean_speed_left', 'mean_speed_right',
+                'mean_throughput_left', 'mean_throughput_right', 'left_peg_rate', 'right_peg_rate']
+
+    print("\n" + "=" * 100)
+    print("COMPARISON RESULTS — Core Metrics")
+    print("=" * 100)
+    header = f"{'Policy':<15s}"
+    for k in core_keys:
+        header += f" {k.replace('mean_', ''):>12s}"
+    print(header)
+    print("-" * len(header))
     for name, metrics in results.items():
-        print(f"{name:<30s} {metrics['success']:>10.3f} {metrics['speed']:>10.3f} "
-              f"{metrics['smoothness']:>12.3f} {metrics['score']:>10.3f} {metrics['throughput']:>12.4f}")
-    print("=" * 92)
+        row = f"{name:<15s}"
+        for k in core_keys:
+            row += f" {metrics.get(k, 0.0):>12.3f}"
+        print(row)
+
+    # Print peg metrics if available
+    has_peg = any(k in m for m in results.values() for k in peg_keys)
+    if has_peg:
+        print("\n" + "=" * 120)
+        print("COMPARISON RESULTS — Per-Peg Metrics")
+        print("=" * 120)
+        header = f"{'Policy':<15s}"
+        for k in peg_keys:
+            header += f" {k.replace('mean_', ''):>14s}"
+        print(header)
+        print("-" * len(header))
+        for name, metrics in results.items():
+            row = f"{name:<15s}"
+            for k in peg_keys:
+                val = metrics.get(k, None)
+                row += f" {val:>14.3f}" if val is not None else f" {'n/a':>14s}"
+            print(row)
+
+    print("=" * 100)
 
     # Log all results as wandb summary
     for name, metrics in results.items():
@@ -187,10 +246,12 @@ def main(original_ckpt, conditioned_ckpt, scores_path, n_rollouts, num_reward_di
             wandb.summary[f'comparison/{name}/{metric_name}'] = value
 
     # Log comparison table to wandb
-    table = wandb.Table(columns=['policy', 'success', 'speed', 'smoothness', 'score', 'throughput'])
+    all_keys = core_keys + peg_keys
+    table_cols = ['policy'] + [k.replace('mean_', '') for k in all_keys]
+    table = wandb.Table(columns=table_cols)
     for name, metrics in results.items():
-        table.add_data(name, metrics['success'], metrics['speed'],
-                       metrics['smoothness'], metrics['score'], metrics['throughput'])
+        row = [name] + [metrics.get(k, None) for k in all_keys]
+        table.add_data(*row)
     wandb.log({'eval/comparison_table': table})
 
     # Save results
@@ -200,17 +261,6 @@ def main(original_ckpt, conditioned_ckpt, scores_path, n_rollouts, num_reward_di
     print(f"\nResults saved to {results_path}")
 
     wandb.finish()
-
-
-def extract_metrics(log_data):
-    """Extract test metrics from runner log data."""
-    return {
-        'success': log_data.get('test/mean_success', 0.0),
-        'speed': log_data.get('test/mean_speed_reward', 0.0),
-        'smoothness': log_data.get('test/mean_smoothness', 0.0),
-        'score': log_data.get('test/mean_score', 0.0),
-        'throughput': log_data.get('test/mean_throughput', 0.0),
-    }
 
 
 if __name__ == '__main__':

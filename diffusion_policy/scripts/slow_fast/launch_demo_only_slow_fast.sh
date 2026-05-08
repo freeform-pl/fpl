@@ -15,6 +15,7 @@ export PIPELINE_DIR="pipeline_output_slow_fast_demo_only"
 export WANDB_PROJECT="slow_fast_demo_only"
 export SKIP_REWARD_MODEL=true
 export SKIP_POLICY_TRAINING=true
+export IS_CONDITIONED_EVAL=false
 export RESUME_FROM_PHASE=1
 
 bash scripts/run_pipeline_slow_fast.sh
