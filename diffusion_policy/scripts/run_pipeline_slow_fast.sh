@@ -19,33 +19,51 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/.mujoco/mujoco210/bin
 
 conda activate robodiffrew2
 
+# Helper: find best checkpoint in a directory by test_mean_score in filename
+find_best_ckpt() {
+    local ckpt_dir="$1"
+    local best_ckpt=""
+    local best_score=-999
+    for f in "${ckpt_dir}"/epoch=*-test_mean_score=*.ckpt; do
+        [ -f "$f" ] || continue
+        score=$(echo "$f" | grep -oP 'test_mean_score=\K[0-9.]+')
+        if [ -n "$score" ] && (( $(echo "$score > $best_score" | bc -l) )); then
+            best_score="$score"
+            best_ckpt="$f"
+        fi
+    done
+    echo "$best_ckpt"
+}
+
 # ============================================================
 # Configuration
 # ============================================================
-N_SCRIPTED=50           # Number of scripted demos (left/right peg)
-N_ROLLOUTS=200          # Number of rollouts from base policy
-N_EVAL_ROLLOUTS=50
+N_SCRIPTED=${N_SCRIPTED:-50}
+N_ROLLOUTS=${N_ROLLOUTS:-200}
+N_EVAL_ROLLOUTS=${N_EVAL_ROLLOUTS:-50}
 PIPELINE_DIR=${PIPELINE_DIR:-"pipeline_output_slow_fastv2"}
-BASE_POLICY_EPOCHS=500
-REWARD_EPOCHS=10
+BASE_POLICY_EPOCHS=5000
+REWARD_EPOCHS=${REWARD_EPOCHS:-50}
 COND_POLICY_EPOCHS=500
 WANDB_PROJECT=${WANDB_PROJECT:-"slow_fast_pipeline"}
-NUM_REWARD_DIMS=${NUM_REWARD_DIMS:-3}       # speed, smoothness, peg
-REWARD_AXES=${REWARD_AXES:-"speed_reward,smoothness,peg_reward"}
+NUM_REWARD_DIMS=${NUM_REWARD_DIMS:-4}       # speed, smoothness, peg
+REWARD_AXES=${REWARD_AXES:-"success,speed_reward,smoothness,peg_reward"}
 COND_CONFIG=${COND_CONFIG:-"train_reward_conditioned_flow_transformer_lowdim_workspace.yaml"}
 SKIP_REWARD_MODEL=${SKIP_REWARD_MODEL:-false}
 SKIP_POLICY_TRAINING=${SKIP_POLICY_TRAINING:-false}
 IS_CONDITIONED_EVAL=${IS_CONDITIONED_EVAL:-true}
+USE_BEST_CKPT=${USE_BEST_CKPT:-true}
+SKIP_ROLLOUTS=${SKIP_ROLLOUTS:-false}
 
 # Noise range for scripted trajectory smoothness variation
-NOISE_MIN=0.0
-NOISE_MAX=0.12
+NOISE_MIN=${NOISE_MIN:-0.0}
+NOISE_MAX=${NOISE_MAX:-0.12}
 
 # Speed factors: left peg = fast, right peg = slow
-SPEED_FACTOR_LEFT=0.6
-SPEED_FACTOR_RIGHT=2.0
+SPEED_FACTOR_LEFT=${SPEED_FACTOR_LEFT:-0.6}
+SPEED_FACTOR_RIGHT=${SPEED_FACTOR_RIGHT:-4.0}
 
-# Per-axis eval z-score conditioning (optional, arrays like "[1.5,1.5,1.5,1.5]")
+# Per-axis eval conditioning targets (scores normalized to [-1, 1])
 EVAL_Z_POSITIVE=${EVAL_Z_POSITIVE:-"[1.0,1.0,1.0]"}
 EVAL_Z_NEGATIVE=${EVAL_Z_NEGATIVE:-}
 
@@ -60,9 +78,10 @@ fi
 # Resume from this phase (0=full run)
 RESUME_FROM_PHASE=${RESUME_FROM_PHASE:-0}
 
-SCRIPTED_DIR="${PIPELINE_DIR}/scripted_data"
+SHARED_DATA_DIR=${SHARED_DATA_DIR:-"shared_data_slow_fast"}
+SCRIPTED_DIR="${SHARED_DATA_DIR}/scripted_data"
 SCRIPTED_HDF5="${SCRIPTED_DIR}/demos.hdf5"
-ROLLOUT_PATH="${PIPELINE_DIR}/rollouts.npz"
+ROLLOUT_PATH="${SHARED_DATA_DIR}/rollouts.npz"
 REWARD_DIR="${PIPELINE_DIR}/reward_model"
 SCORES_PATH="${REWARD_DIR}/scores.json"
 
@@ -85,32 +104,45 @@ fi
 # ============================================================
 # Phase 1: Train base policy on scripted demos
 # ============================================================
-# if [ ${RESUME_FROM_PHASE} -le 1 ]; then
-#     echo "=== Phase 1: Training base policy on scripted demos ==="
-#     python train.py \
-#         --config-name=train_flow_transformer_lowdim_workspace.yaml \
-#         task=square_twopeg_lowdim \
-#         task.dataset.dataset_path="${SCRIPTED_HDF5}" \
-#         task.env_runner.dataset_path="${SCRIPTED_HDF5}" \
-#         training.num_epochs=${BASE_POLICY_EPOCHS} \
-#         logging.project="${WANDB_PROJECT}"
-# else
-#     echo "=== Phase 1: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
-# fi
-echo "=== Phase 1: SKIPPED reusing pretrained ckpt ==="
-
-# Find the best base policy checkpoint
-BASE_CKPT="/iris/u/marcelto/reward_learning/diffusion_policy/data/outputs/2026.05.05/14.14.35_train_flow_transformer_lowdim_square_twopeg_lowdim/checkpoints/epoch=4600-test_mean_score=0.800.ckpt"
-if [ -z "${BASE_CKPT}" ]; then
-    echo "ERROR: Could not find base policy checkpoint"
-    exit 1
+BASE_POLICY_DIR=${BASE_POLICY_DIR:-"base_policy_slow_fast"}
+BASE_CKPT_DIR="${BASE_POLICY_DIR}/checkpoints"
+if [ "${SKIP_ROLLOUTS}" = "true" ]; then
+    echo "=== Phase 1: SKIPPED (no rollouts mode — using demos only) ==="
+elif [ ${RESUME_FROM_PHASE} -le 1 ]; then
+    echo "=== Phase 1: Training base policy on scripted demos ==="
+    python train.py \
+        --config-name=train_flow_transformer_lowdim_workspace.yaml \
+        task=square_twopeg_lowdim \
+        task.dataset.dataset_path="${SCRIPTED_HDF5}" \
+        task.env_runner.dataset_path="${SCRIPTED_HDF5}" \
+        training.num_epochs=${BASE_POLICY_EPOCHS} \
+        logging.project="${WANDB_PROJECT}" \
+        hydra.run.dir="${BASE_POLICY_DIR}"
+else
+    echo "=== Phase 1: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
 fi
-echo "Using base policy checkpoint: ${BASE_CKPT}"
+
+# Find the best base policy checkpoint (not needed if skipping rollouts)
+if [ "${SKIP_ROLLOUTS}" != "true" ]; then
+    BASE_CKPT=$(find_best_ckpt "${BASE_CKPT_DIR}")
+    if [ -z "${BASE_CKPT}" ]; then
+        if [ -f "${BASE_CKPT_DIR}/latest.ckpt" ]; then
+            BASE_CKPT="${BASE_CKPT_DIR}/latest.ckpt"
+        else
+            echo "ERROR: Could not find base policy checkpoint in ${BASE_CKPT_DIR}"
+            exit 1
+        fi
+    fi
+    echo "Using base policy checkpoint: ${BASE_CKPT}"
+fi
 
 # ============================================================
 # Phase 2: Collect rollouts from base policy
 # ============================================================
-if [ ${RESUME_FROM_PHASE} -le 2 ]; then
+if [ "${SKIP_ROLLOUTS}" = "true" ]; then
+    echo "=== Phase 2: SKIPPED (no rollouts mode — demos only) ==="
+    ROLLOUT_PATH="none"
+elif [ ${RESUME_FROM_PHASE} -le 2 ]; then
     echo "=== Phase 2: Collecting ${N_ROLLOUTS} rollouts from base policy ==="
     python scripts/collect_rollouts.py \
         --checkpoint "${BASE_CKPT}" \
@@ -172,6 +204,12 @@ fi
 COND_CKPT_DIR="${PIPELINE_DIR}/policy_output/checkpoints"
 if [ "${SKIP_POLICY_TRAINING}" = "true" ]; then
     COND_CKPT="${BASE_CKPT}"
+elif [ "${USE_BEST_CKPT}" = "true" ]; then
+    COND_CKPT=$(find_best_ckpt "${COND_CKPT_DIR}")
+    if [ -z "${COND_CKPT}" ]; then
+        echo "WARNING: No best ckpt found, falling back to latest.ckpt"
+        COND_CKPT="${COND_CKPT_DIR}/latest.ckpt"
+    fi
 elif [ -f "${COND_CKPT_DIR}/latest.ckpt" ]; then
     COND_CKPT="${COND_CKPT_DIR}/latest.ckpt"
 else
@@ -185,7 +223,10 @@ echo "Using conditioned checkpoint: ${COND_CKPT}"
 # ============================================================
 if [ ${RESUME_FROM_PHASE} -le 5 ]; then
     echo "=== Phase 5: Evaluation ==="
-    EVAL_ARGS="--original_ckpt ${BASE_CKPT} --conditioned_ckpt ${COND_CKPT} --n_rollouts ${N_EVAL_ROLLOUTS} --output_dir ${PIPELINE_DIR}/eval --wandb_project ${WANDB_PROJECT} --num_reward_dims ${NUM_REWARD_DIMS}"
+    EVAL_ARGS="--ckpt ${COND_CKPT} --n_rollouts ${N_EVAL_ROLLOUTS} --output_dir ${PIPELINE_DIR}/eval --wandb_project ${WANDB_PROJECT} --num_reward_dims ${NUM_REWARD_DIMS}"
+    if [ "${IS_CONDITIONED_EVAL}" = "true" ]; then
+        EVAL_ARGS="${EVAL_ARGS} --is_conditioned"
+    fi
     if [ -f "${SCORES_PATH}" ]; then
         EVAL_ARGS="${EVAL_ARGS} --scores_path ${SCORES_PATH}"
     fi

@@ -30,8 +30,8 @@ source .venv/bin/activate
 # python infer.py --ckpt exp/2026-05-07_22-41-36_transformer_j15366660/checkpoints/step002400.pt --preferences_dir /iris/u/abhijnya/droid-robot/demos/test,/iris/u/am208/droid-robot/demos/test,/iris/u/am208/droid-robot/preferences --output_dir /iris/u/marcelto/reward_learning/infer_output/fold_pants_single/2026-05-07_22-41-36_transformer_j15366660_2400
 
 # # setup table multi
-# python infer.py --ckpt exp/2026-05-07_21-50-42_transformer_j15364912/checkpoints/step002100.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_single/2026-05-07_21-50-42_transformer_j15364912_2100
-# python infer.py --ckpt exp/2026-05-07_21-50-42_transformer_j15364912/checkpoints/step000250.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_single/2026-05-07_21-50-42_transformer_j15364912_250
+# python infer.py --ckpt exp/2026-05-07_21-50-42_transformer_j15364912/checkpoints/step002100.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi/2026-05-07_21-50-42_transformer_j15364912_2100
+# python infer.py --ckpt exp/2026-05-07_21-50-42_transformer_j15364912/checkpoints/step000250.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi/2026-05-07_21-50-42_transformer_j15364912_250
 
 # # setup table single
 # python infer.py --ckpt exp/2026-05-07_21-53-40_transformer_j15364917/checkpoints/step001150.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_single/2026-05-07_21-53-40_transformer_j15364917_1150

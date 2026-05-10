@@ -23,39 +23,10 @@ from diffusion_policy.gym_util.video_recording_wrapper import VideoRecordingWrap
 from diffusion_policy.model.common.rotation_transformer import RotationTransformer
 from diffusion_policy.policy.base_lowdim_policy import BaseLowdimPolicy
 from diffusion_policy.common.pytorch_util import dict_apply
-from diffusion_policy.env_runner.robomimic_lowdim_runner import RobomimicLowdimRunner, create_env
+from diffusion_policy.env_runner.robomimic_lowdim_runner import RobomimicLowdimRunner, create_env, classify_peg_from_obs
 from diffusion_policy.env.robomimic.robomimic_twopeg_lowdim_wrapper import RobomimicTwoPegLowdimWrapper
 
 
-def classify_peg_from_obs(obs):
-    """
-    Determine which peg the nut is on from the final observation.
-    obs layout: object(14), robot0_eef_pos(3), robot0_eef_quat(4), robot0_gripper_qpos(2) = 23 dims
-    object[:3] = nut_pos
-
-    Peg positions (from robosuite NutAssemblySquare):
-      peg1 (left):  [0.23,  0.1, 0.85]
-      peg2 (right): [0.23, -0.1, 0.85]
-
-    Returns: 'left', 'right', or 'none'
-    """
-    nut_pos = obs[:3]
-    peg1_pos = np.array([0.23, 0.1, 0.85])
-    peg2_pos = np.array([0.23, -0.1, 0.85])
-
-    # Same threshold as robosuite on_peg: xy within 0.03, z below table + 0.05
-    table_z = 0.8
-    if (abs(nut_pos[0] - peg1_pos[0]) < 0.03 and
-        abs(nut_pos[1] - peg1_pos[1]) < 0.03 and
-        nut_pos[2] < table_z + 0.05):
-        return 'left'
-
-    if (abs(nut_pos[0] - peg2_pos[0]) < 0.03 and
-        abs(nut_pos[1] - peg2_pos[1]) < 0.03 and
-        nut_pos[2] < table_z + 0.05):
-        return 'right'
-
-    return 'none'
 
 
 class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
@@ -282,6 +253,9 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
         prefix_score_right = collections.defaultdict(list)
         prefix_throughput_left = collections.defaultdict(list)
         prefix_throughput_right = collections.defaultdict(list)
+        prefix_first_success_step = collections.defaultdict(list)
+        prefix_first_success_step_left = collections.defaultdict(list)
+        prefix_first_success_step_right = collections.defaultdict(list)
 
         for i in range(n_inits):
             seed = self.env_seeds[i]
@@ -301,6 +275,8 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
             if success:
                 speed_reward = 1.0 - 0.9 * (first_success_step / self.max_steps)
             prefix_speed[prefix].append(speed_reward)
+            if success:
+                prefix_first_success_step[prefix].append(first_success_step)
 
             throughput = success / ((first_success_step + 1) / self.max_steps) if success else 0.0
             prefix_throughput[prefix].append(throughput)
@@ -332,10 +308,14 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
                     prefix_speed_left[prefix].append(speed_reward)
                     prefix_score_left[prefix].append(score)
                     prefix_throughput_left[prefix].append(throughput)
+                    if success:
+                        prefix_first_success_step_left[prefix].append(first_success_step)
                 elif peg_status == 'right':
                     prefix_speed_right[prefix].append(speed_reward)
                     prefix_score_right[prefix].append(score)
                     prefix_throughput_right[prefix].append(throughput)
+                    if success:
+                        prefix_first_success_step_right[prefix].append(first_success_step)
 
         for prefix in prefix_success.keys():
             mean_success = np.mean(prefix_success[prefix])
@@ -346,6 +326,8 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
             log_data[prefix + 'mean_speed_reward'] = mean_speed
             log_data[prefix + 'mean_smoothness'] = mean_smoothness
             log_data[prefix + 'mean_throughput'] = np.mean(prefix_throughput[prefix])
+            if prefix_first_success_step[prefix]:
+                log_data[prefix + 'mean_first_success_step'] = np.mean(prefix_first_success_step[prefix])
             if prefix in prefix_left_peg:
                 log_data[prefix + 'left_peg_rate'] = np.mean(prefix_left_peg[prefix])
                 log_data[prefix + 'right_peg_rate'] = np.mean(prefix_right_peg[prefix])
@@ -365,6 +347,10 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
                 log_data[prefix + 'mean_throughput_left'] = np.mean(prefix_throughput_left[prefix])
             if prefix_throughput_right[prefix]:
                 log_data[prefix + 'mean_throughput_right'] = np.mean(prefix_throughput_right[prefix])
+            if prefix_first_success_step_left[prefix]:
+                log_data[prefix + 'mean_first_success_step_left'] = np.mean(prefix_first_success_step_left[prefix])
+            if prefix_first_success_step_right[prefix]:
+                log_data[prefix + 'mean_first_success_step_right'] = np.mean(prefix_first_success_step_right[prefix])
 
         return log_data
 

@@ -13,10 +13,10 @@
 # RHP baseline for slow/fast experiment (3 reward dims: speed, smoothness, peg)
 export PIPELINE_DIR="pipeline_output_slow_fast_rhp"
 export WANDB_PROJECT="slow_fast_rhp"
-export RESUME_FROM_PHASE=4
+export RESUME_FROM_PHASE=1
 
-# Per-axis eval z-score conditioning (length must match NUM_REWARD_DIMS=3: speed_reward, smoothness, peg_reward)
-export EVAL_Z_POSITIVE="[1.0,1.0,1.0]"
+# Per-axis eval z-score conditioning (length must match NUM_REWARD_DIMS=3: success,speed_reward, smoothness, peg_reward)
+export EVAL_Z_POSITIVE="[1.5,2.1,1.8,1.8]"
 # export EVAL_Z_NEGATIVE="[-1.0,-1.0,-1.0]"
 
 bash scripts/run_pipeline_slow_fast.sh

@@ -8,4 +8,7 @@ diffusion_policy/wandb
 diffusion_policy/data
 diffusion_policy/pipeline_output*
 slurm/
+diffusion_policy/plots/
+diffusion_policy/shared*
+diffusion_policy/base_*
 __pycache__/

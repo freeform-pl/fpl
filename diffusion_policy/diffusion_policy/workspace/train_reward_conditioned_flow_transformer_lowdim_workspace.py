@@ -126,16 +126,17 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
         env_runner.num_reward_dims = num_reward_dims
         print(f"Reward dims: {num_reward_dims} ({scores_meta['reward_names']})")
 
-        # Build eval z-score targets: list of (label, array_of_length_K)
+        # Build eval conditioning targets: list of (label, array_of_length_K)
+        # Scores are normalized to [-1, 1], so defaults are ±1.0
         z_zero = np.zeros(num_reward_dims, dtype=np.float32)
         if z_pos is not None:
             z_positive = np.array(z_pos, dtype=np.float32)
         else:
-            z_positive = np.full(num_reward_dims, 1.5, dtype=np.float32)
+            z_positive = np.full(num_reward_dims, 0.9, dtype=np.float32)
         if z_neg is not None:
             z_negative = np.array(z_neg, dtype=np.float32)
         else:
-            z_negative = np.full(num_reward_dims, -1.5, dtype=np.float32)
+            z_negative = np.full(num_reward_dims, -0.9, dtype=np.float32)
 
         eval_z_targets = [
             ('z_zero', z_zero),
@@ -158,7 +159,8 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
 
         # Log z-score distributions of the training dataset
         reward_names = scores_meta['reward_names']
-        rollout_z = np.array(scores_meta['rollout_scores_zscore'])
+        rollout_z_raw = scores_meta['rollout_scores_zscore']
+        rollout_z = np.array(rollout_z_raw).reshape(-1, num_reward_dims) if len(rollout_z_raw) > 0 else np.zeros((0, num_reward_dims))
         demo_z = np.array(scores_meta['demo_scores_zscore'])
         all_z = np.concatenate([rollout_z, demo_z], axis=0)
 
@@ -169,13 +171,13 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
             ax.hist(demo_z[:, k], bins=30, alpha=0.6, label='demos', edgecolor='black')
             ax.axvline(z_positive[k], color='green', linestyle='--', linewidth=1.5, label=f'pos={z_positive[k]:.1f}')
             ax.axvline(z_negative[k], color='red', linestyle='--', linewidth=1.5, label=f'neg={z_negative[k]:.1f}')
-            ax.set_title(f'{reward_names[k]} z-scores')
-            ax.set_xlabel('z-score')
+            ax.set_title(f'{reward_names[k]} normalized')
+            ax.set_xlabel('normalized score [-1, 1]')
             ax.set_ylabel('count')
             ax.legend(fontsize=8)
-        fig.suptitle('Conditioning Z-Score Distributions (Training Data)')
+        fig.suptitle('Conditioning Score Distributions (Training Data)')
         fig.tight_layout()
-        wandb_run.log({'dataset/zscore_distributions': wandb.Image(fig)})
+        wandb_run.log({'dataset/score_distributions': wandb.Image(fig)})
         plt.close(fig)
 
         # configure checkpoint
@@ -276,8 +278,8 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
 
                         z_log = env_runner.run(policy)
 
-                        if z_label == 'z_zero':
-                            # Use z=0 as the main metrics for checkpointing
+                        if z_label == 'z_pos':
+                            # Use z_pos as the main metrics for checkpointing
                             step_log.update(z_log)
                         for key, value in z_log.items():
                             step_log[f'{z_label}/{key}'] = value

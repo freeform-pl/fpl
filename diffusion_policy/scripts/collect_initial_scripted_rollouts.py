@@ -598,6 +598,9 @@ def save_npz_from_hdf5(output_dir):
     hdf5_path = pathlib.Path(output_dir) / "demos.hdf5"
     npz_path = pathlib.Path(output_dir) / "rollouts.npz"
 
+    # Convert 7D axis_angle actions to 10D rot6d to match policy action space
+    rot_transformer = RotationTransformer(from_rep='axis_angle', to_rep='rotation_6d')
+
     with h5py.File(hdf5_path, 'r') as f:
         demos = f['data']
         n_episodes = len([k for k in demos.keys() if k.startswith('demo_')])
@@ -618,6 +621,14 @@ def save_npz_from_hdf5(output_dir):
             obs_parts = [demo['obs'][key][:].astype(np.float32) for key in OBS_KEYS]
             obs = np.concatenate(obs_parts, axis=-1)
             actions = demo['actions'][:].astype(np.float32)
+
+            # Convert 7D (pos3 + axis_angle3 + gripper1) to 10D (pos3 + rot6d + gripper1)
+            if actions.shape[-1] == 7:
+                pos = actions[:, :3]
+                rot = actions[:, 3:6]
+                gripper = actions[:, 6:]
+                rot6d = rot_transformer.forward(rot)
+                actions = np.concatenate([pos, rot6d, gripper], axis=-1).astype(np.float32)
             L = min(len(obs), len(actions))
             all_obs.append(obs[:L])
             all_actions.append(actions[:L])

@@ -15,7 +15,7 @@ export PIPELINE_DIR="pipeline_output_slow_fast_single_pref"
 export WANDB_PROJECT="slow_fast_single_pref"
 export NUM_REWARD_DIMS=1
 export REWARD_AXES="composite"
-export RESUME_FROM_PHASE=4
+export RESUME_FROM_PHASE=0
 
 # Per-axis eval z-score conditioning (length must match NUM_REWARD_DIMS=1)
 export EVAL_Z_POSITIVE="[1.0]"

@@ -155,24 +155,36 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
         },
     )
 
-    # Load rollout data
-    data = np.load(rollout_data)
-    rollout_obs = data['obs']  # (N, T, D)
-    rollout_lengths = data['episode_lengths']  # (N,)
-    rollout_success = data['success']  # (N,)
-    rollout_speed = data['speed_reward']  # (N,)
-    rollout_smoothness = data['smoothness']  # (N,)
-    rollout_peg = data['peg_reward'] if 'peg_reward' in data else None
+    # Load rollout data (skip if path is "none" — demos-only mode)
+    has_rollouts = rollout_data and rollout_data != "none"
+    if has_rollouts:
+        data = np.load(rollout_data)
+        rollout_obs = data['obs']  # (N, T, D)
+        rollout_lengths = data['episode_lengths']  # (N,)
+        rollout_success = data['success']  # (N,)
+        rollout_speed = data['speed_reward']  # (N,)
+        rollout_smoothness = data['smoothness']  # (N,)
+        rollout_peg = data['peg_reward'] if 'peg_reward' in data else None
 
-    n_rollouts = len(rollout_obs)
-    obs_dim = rollout_obs.shape[-1]
+        n_rollouts = len(rollout_obs)
+        obs_dim = rollout_obs.shape[-1]
 
-    print(f"Loaded {n_rollouts} rollouts, obs_dim={obs_dim}")
-    print(f"  Success rate: {rollout_success.mean():.3f}")
-    print(f"  Mean speed:   {rollout_speed.mean():.3f}")
-    print(f"  Mean smooth:  {rollout_smoothness.mean():.3f}")
-    if rollout_peg is not None:
-        print(f"  Peg: left={np.sum(rollout_peg < 0)}, right={np.sum(rollout_peg > 0)}, none={np.sum(rollout_peg == 0)}")
+        print(f"Loaded {n_rollouts} rollouts, obs_dim={obs_dim}")
+        print(f"  Success rate: {rollout_success.mean():.3f}")
+        print(f"  Mean speed:   {rollout_speed.mean():.3f}")
+        print(f"  Mean smooth:  {rollout_smoothness.mean():.3f}")
+        if rollout_peg is not None:
+            print(f"  Peg: left={np.sum(rollout_peg < 0)}, right={np.sum(rollout_peg > 0)}, none={np.sum(rollout_peg == 0)}")
+    else:
+        n_rollouts = 0
+        rollout_obs = None
+        rollout_lengths = None
+        rollout_success = None
+        rollout_speed = None
+        rollout_smoothness = None
+        rollout_peg = None
+        obs_dim = None
+        print("No rollout data — training on demos only.")
 
     # Load demo data and compute ground-truth metrics
     demo_episodes = load_demo_obs(demo_hdf5, obs_keys, max_demos=max_demos)
@@ -220,16 +232,20 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
     demo_smoothness = np.array(demo_smooth_list, dtype=np.float32)
     demo_peg = np.array(demo_peg_list, dtype=np.float32)
 
+    # Infer obs_dim from demos if no rollouts
+    if obs_dim is None:
+        obs_dim = demo_episodes[0].shape[-1]
+
     # Pad demo obs to same format as rollouts
     max_demo_len = max(demo_lengths_list) if demo_lengths_list else 0
-    max_T = max(rollout_obs.shape[1], max_demo_len)
+    max_T = max(rollout_obs.shape[1], max_demo_len) if has_rollouts else max_demo_len
     demo_obs_padded = np.zeros((n_demos, max_T, obs_dim), dtype=np.float32)
     for i, ep in enumerate(demo_episodes):
         demo_obs_padded[i, :len(ep)] = ep
     demo_lengths = np.array(demo_lengths_list, dtype=np.int32)
 
     # Pad rollout obs if demos are longer
-    if max_T > rollout_obs.shape[1]:
+    if has_rollouts and max_T > rollout_obs.shape[1]:
         padded = np.zeros((n_rollouts, max_T, obs_dim), dtype=np.float32)
         padded[:, :rollout_obs.shape[1]] = rollout_obs
         rollout_obs = padded
@@ -239,12 +255,20 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
     print(f"  Demo mean smooth:  {demo_smoothness.mean():.3f}")
 
     # Concatenate rollouts + demos for preference training
-    all_obs = np.concatenate([rollout_obs, demo_obs_padded], axis=0)
-    all_lengths = np.concatenate([rollout_lengths, demo_lengths], axis=0)
-    all_success = np.concatenate([rollout_success, demo_success], axis=0)
-    all_speed = np.concatenate([rollout_speed, demo_speed], axis=0)
-    all_smoothness = np.concatenate([rollout_smoothness, demo_smoothness], axis=0)
-    all_peg = np.concatenate([rollout_peg, demo_peg], axis=0) if rollout_peg is not None else None
+    if has_rollouts:
+        all_obs = np.concatenate([rollout_obs, demo_obs_padded], axis=0)
+        all_lengths = np.concatenate([rollout_lengths, demo_lengths], axis=0)
+        all_success = np.concatenate([rollout_success, demo_success], axis=0)
+        all_speed = np.concatenate([rollout_speed, demo_speed], axis=0)
+        all_smoothness = np.concatenate([rollout_smoothness, demo_smoothness], axis=0)
+        all_peg = np.concatenate([rollout_peg, demo_peg], axis=0) if rollout_peg is not None else None
+    else:
+        all_obs = demo_obs_padded
+        all_lengths = demo_lengths
+        all_success = demo_success
+        all_speed = demo_speed
+        all_smoothness = demo_smoothness
+        all_peg = demo_peg
 
     # All available axes (over combined rollouts + demos)
     available = {
@@ -414,22 +438,26 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
 
     # Score rollouts and demos separately
     model.eval()
-    rollout_scores = score_episodes(model, rollout_obs, rollout_lengths, max_seq_len, device)
+    if has_rollouts:
+        rollout_scores = score_episodes(model, rollout_obs, rollout_lengths, max_seq_len, device)
+    else:
+        rollout_scores = np.zeros((0, num_rewards), dtype=np.float32)
     demo_scores = score_episodes(model, demo_obs_padded, demo_lengths, max_seq_len, device)
 
-    # Compute z-score normalization stats from rollout scores
+    # Normalize scores to [-1, 1] using min/max
     all_scores = np.concatenate([rollout_scores, demo_scores], axis=0)
-    score_mean = all_scores.mean(axis=0)  # (K,)
-    score_std = all_scores.std(axis=0)  # (K,)
-    score_std[score_std < 1e-8] = 1.0  # avoid division by zero
+    score_min = all_scores.min(axis=0)  # (K,)
+    score_max = all_scores.max(axis=0)  # (K,)
+    score_range = score_max - score_min
+    score_range[score_range < 1e-8] = 1.0  # avoid division by zero
 
-    rollout_z = (rollout_scores - score_mean) / score_std
-    demo_z = (demo_scores - score_mean) / score_std
+    rollout_z = 2.0 * (rollout_scores - score_min) / score_range - 1.0 if has_rollouts else np.zeros((0, num_rewards), dtype=np.float32)
+    demo_z = 2.0 * (demo_scores - score_min) / score_range - 1.0
 
     # Save scores
     scores = {
-        'score_mean': score_mean.tolist(),
-        'score_std': score_std.tolist(),
+        'score_min': score_min.tolist(),
+        'score_max': score_max.tolist(),
         'reward_names': reward_names,
         'rollout_scores_raw': rollout_scores.tolist(),
         'rollout_scores_zscore': rollout_z.tolist(),
@@ -444,22 +472,24 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
 
     print(f"\nScoring complete:")
     print(f"  Reward dims: {reward_names}")
-    print(f"  Score mean: {score_mean}")
-    print(f"  Score std:  {score_std}")
-    print(f"  Rollout z-scores range: [{rollout_z.min(axis=0)}, {rollout_z.max(axis=0)}]")
-    print(f"  Demo z-scores range:    [{demo_z.min(axis=0)}, {demo_z.max(axis=0)}]")
+    print(f"  Score min: {score_min}")
+    print(f"  Score max: {score_max}")
+    if has_rollouts:
+        print(f"  Rollout normalized range: [{rollout_z.min(axis=0)}, {rollout_z.max(axis=0)}]")
+    print(f"  Demo normalized range:    [{demo_z.min(axis=0)}, {demo_z.max(axis=0)}]")
     print(f"  Saved scores to {scores_path}")
 
     # Log scoring summary to wandb
     for k, name in enumerate(reward_names):
-        wandb.summary[f'scoring/score_mean_{name}'] = float(score_mean[k])
-        wandb.summary[f'scoring/score_std_{name}'] = float(score_std[k])
-        wandb.summary[f'scoring/rollout_zscore_min_{name}'] = float(rollout_z[:, k].min())
-        wandb.summary[f'scoring/rollout_zscore_max_{name}'] = float(rollout_z[:, k].max())
+        wandb.summary[f'scoring/score_min_{name}'] = float(score_min[k])
+        wandb.summary[f'scoring/score_max_{name}'] = float(score_max[k])
+        if has_rollouts:
+            wandb.summary[f'scoring/rollout_norm_min_{name}'] = float(rollout_z[:, k].min())
+            wandb.summary[f'scoring/rollout_norm_max_{name}'] = float(rollout_z[:, k].max())
         if len(demo_scores) > 0:
-            wandb.summary[f'scoring/demo_zscore_min_{name}'] = float(demo_z[:, k].min())
-            wandb.summary[f'scoring/demo_zscore_max_{name}'] = float(demo_z[:, k].max())
-            wandb.summary[f'scoring/demo_zscore_mean_{name}'] = float(demo_z[:, k].mean())
+            wandb.summary[f'scoring/demo_norm_min_{name}'] = float(demo_z[:, k].min())
+            wandb.summary[f'scoring/demo_norm_max_{name}'] = float(demo_z[:, k].max())
+            wandb.summary[f'scoring/demo_norm_mean_{name}'] = float(demo_z[:, k].mean())
     wandb.summary['scoring/n_rollouts'] = len(rollout_scores)
     wandb.summary['scoring/n_demos'] = len(demo_scores)
     wandb.finish()

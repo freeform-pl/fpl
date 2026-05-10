@@ -72,39 +72,44 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
 
         replay_buffer = ReplayBuffer.create_empty_numpy()
 
-        # Load rollout data
-        data = np.load(rollout_data_path)
-        rollout_obs = data['obs']  # (N, T, D)
-        rollout_actions = data['actions']  # (N, T, Da)
-        rollout_lengths = data['episode_lengths']  # (N,)
+        # Load rollout data (skip if rollout_data_path is "none" — demos-only mode)
+        has_rollouts = rollout_data_path and rollout_data_path != "none"
+        rollout_action_dim = None
+        if has_rollouts:
+            data = np.load(rollout_data_path)
+            rollout_obs = data['obs']  # (N, T, D)
+            rollout_actions = data['actions']  # (N, T, Da)
+            rollout_lengths = data['episode_lengths']  # (N,)
+            rollout_action_dim = rollout_actions.shape[-1]
 
-        for i in tqdm(range(len(rollout_obs)), desc="Loading rollout episodes"):
-            L_obs = int(rollout_lengths[i])
-            # Actions might be shorter than obs
-            L_act = min(L_obs - 1, rollout_actions.shape[1])
-            if L_act <= 0:
-                continue
+            for i in tqdm(range(len(rollout_obs)), desc="Loading rollout episodes"):
+                L_obs = int(rollout_lengths[i])
+                # Actions might be shorter than obs
+                L_act = min(L_obs - 1, rollout_actions.shape[1])
+                if L_act <= 0:
+                    continue
 
-            obs_i = rollout_obs[i, :L_obs].astype(np.float32)
-            act_i = rollout_actions[i, :L_act].astype(np.float32)
+                obs_i = rollout_obs[i, :L_obs].astype(np.float32)
+                act_i = rollout_actions[i, :L_act].astype(np.float32)
 
-            # Augment obs with reward z-scores (same for all timesteps)
-            reward_vals = rollout_z[i]  # (K,)
-            reward_aug = np.broadcast_to(reward_vals, (L_obs, num_reward_dims)).copy()
-            obs_aug = np.concatenate([obs_i, reward_aug], axis=-1)  # (T, D+K)
+                # Augment obs with reward z-scores (same for all timesteps)
+                reward_vals = rollout_z[i]  # (K,)
+                reward_aug = np.broadcast_to(reward_vals, (L_obs, num_reward_dims)).copy()
+                obs_aug = np.concatenate([obs_i, reward_aug], axis=-1)  # (T, D+K)
 
-            # Truncate obs to match action length + 1 (actions are 1 shorter than obs)
-            # Actually, just use min of both
-            L = min(len(obs_aug), L_act)
-            episode = {
-                'obs': obs_aug[:L],
-                'action': act_i[:L],
-            }
-            replay_buffer.add_episode(episode)
+                # Truncate obs to match action length + 1 (actions are 1 shorter than obs)
+                # Actually, just use min of both
+                L = min(len(obs_aug), L_act)
+                episode = {
+                    'obs': obs_aug[:L],
+                    'action': act_i[:L],
+                }
+                replay_buffer.add_episode(episode)
+        else:
+            print("No rollout data — loading demos only.")
 
         # Load original demo data
-        # Detect if action conversion is needed (demo=7D quat vs rollout=10D rot6d)
-        rollout_action_dim = rollout_actions.shape[-1]
+        # Always convert 7D axis_angle demos to 10D rot6d (policy action space)
         rotation_transformer = RotationTransformer(
             from_rep='axis_angle', to_rep='rotation_6d')
 
@@ -117,8 +122,8 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
                 obs_i = np.concatenate(obs_parts, axis=-1)
                 act_i = demo['actions'][:].astype(np.float32)
 
-                # Convert actions if dim mismatch (7D axis_angle -> 10D rot6d)
-                if act_i.shape[-1] != rollout_action_dim and act_i.shape[-1] == 7:
+                # Convert 7D axis_angle -> 10D rot6d
+                if act_i.shape[-1] == 7:
                     pos = act_i[:, :3]
                     rot = act_i[:, 3:6]
                     gripper = act_i[:, 6:]

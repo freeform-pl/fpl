@@ -170,7 +170,7 @@ def plot_scatter_matrix(data: "RewardData", out_path: str):
     z = data.standardized  # (N, K)
     corr = np.corrcoef(z.T)  # (K, K)
 
-    fig, axes = plt.subplots(K, K, figsize=(2.8 * K, 2.8 * K))
+    fig, axes = plt.subplots(K, K, figsize=(2.8 * K, 2.8 * K), squeeze=False)
     fig.suptitle("Reward dimension scatter matrix  (standardized scores)", fontsize=11, y=1.01)
 
     for i in range(K):

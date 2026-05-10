@@ -7,7 +7,7 @@ Logs all metrics including per-peg success/speed/throughput for slow_fast setups
 Usage:
   python scripts/eval_conditioned.py \
     --original_ckpt <path> \
-    --conditioned_ckpt <path> \
+    --ckpt <path> \
     --scores_path <path_to_scores.json> \
     --n_rollouts 50
 """
@@ -72,6 +72,8 @@ def run_conditioned_policy(policy, cfg, n_rollouts, target_z_array, num_reward_d
     runner_cfg = cfg.task.env_runner
     runner_kwargs = OmegaConf.to_container(runner_cfg, resolve=True)
     runner_kwargs.pop('_target_', None)
+    runner_kwargs.pop('target_rewards', None)
+    runner_kwargs.pop('num_reward_dims', None)
     runner_kwargs['output_dir'] = output_dir
     runner_kwargs['n_train'] = 0
     runner_kwargs['n_train_vis'] = 0
@@ -88,11 +90,12 @@ def run_conditioned_policy(policy, cfg, n_rollouts, target_z_array, num_reward_d
 
 METRIC_KEYS = [
     'mean_success', 'mean_speed_reward', 'mean_smoothness',
-    'mean_score', 'mean_throughput',
+    'mean_score', 'mean_throughput', 'mean_first_success_step',
     'mean_success_left', 'mean_success_right',
     'mean_speed_left', 'mean_speed_right',
     'mean_throughput_left', 'mean_throughput_right',
     'mean_score_left', 'mean_score_right',
+    'mean_first_success_step_left', 'mean_first_success_step_right',
     'left_peg_rate', 'right_peg_rate',
 ]
 
@@ -116,18 +119,18 @@ def log_metrics_to_wandb(metrics, prefix):
 
 
 @click.command()
-@click.option('--original_ckpt', required=True, help='Original policy checkpoint')
-@click.option('--conditioned_ckpt', required=True, help='Reward-conditioned policy checkpoint')
+@click.option('--ckpt', required=True, help='Policy checkpoint to evaluate')
 @click.option('--scores_path', required=False, default=None, help='Path to scores.json from reward model training')
 @click.option('--n_rollouts', default=50, type=int)
 @click.option('--num_reward_dims', default=3, type=int)
 @click.option('--eval_z_positive', default=None, type=str, help='Per-axis positive z-targets, e.g. "[1.0,1.0,1.0]"')
 @click.option('--eval_z_negative', default=None, type=str, help='Per-axis negative z-targets, e.g. "[-1.0,-1.0,-1.0]"')
+@click.option('--is_conditioned', is_flag=True, default=False, help='Whether the policy is reward-conditioned (eval at z_pos/z_zero/z_neg)')
 @click.option('--output_dir', default='eval_conditioned_output')
 @click.option('--device', default='cuda:0')
 @click.option('--wandb_project', default='reward_cond_pipeline', help='wandb project name')
-def main(original_ckpt, conditioned_ckpt, scores_path, n_rollouts, num_reward_dims,
-         eval_z_positive, eval_z_negative, output_dir, device, wandb_project):
+def main(ckpt, scores_path, n_rollouts, num_reward_dims,
+         eval_z_positive, eval_z_negative, is_conditioned, output_dir, device, wandb_project):
     os.makedirs(output_dir, exist_ok=True)
     device = torch.device(device)
 
@@ -136,21 +139,21 @@ def main(original_ckpt, conditioned_ckpt, scores_path, n_rollouts, num_reward_di
         with open(scores_path, 'r') as f:
             scores_data = json.load(f)
         num_reward_dims = len(scores_data['reward_names'])
-        print(f"Reward score stats: mean={scores_data['score_mean']}, std={scores_data['score_std']}")
+        print(f"Reward score stats: min={scores_data['score_min']}, max={scores_data['score_max']}")
         print(f"Reward dims: {num_reward_dims} ({scores_data['reward_names']})")
     else:
         print("No scores file provided or found, skipping reward score stats.")
 
-    # Build per-axis z-targets (matching training-time eval)
+    # Build per-axis conditioning targets (scores normalized to [-1, 1])
     z_zero = np.zeros(num_reward_dims, dtype=np.float32)
     if eval_z_positive is not None:
         z_positive = np.array(json.loads(eval_z_positive), dtype=np.float32)
     else:
-        z_positive = np.full(num_reward_dims, 1.5, dtype=np.float32)
+        z_positive = np.full(num_reward_dims, 0.9, dtype=np.float32)
     if eval_z_negative is not None:
         z_negative = np.array(json.loads(eval_z_negative), dtype=np.float32)
     else:
-        z_negative = np.full(num_reward_dims, -1.5, dtype=np.float32)
+        z_negative = np.full(num_reward_dims, -0.9, dtype=np.float32)
 
     print(f"z_positive: {z_positive}")
     print(f"z_zero:     {z_zero}")
@@ -159,47 +162,39 @@ def main(original_ckpt, conditioned_ckpt, scores_path, n_rollouts, num_reward_di
     # Init wandb
     wandb.init(
         project=wandb_project,
-        name='phase5_eval_comparison',
+        name='phase5_eval',
         config={
-            'original_ckpt': original_ckpt,
-            'conditioned_ckpt': conditioned_ckpt,
+            'ckpt': ckpt,
             'n_rollouts': n_rollouts,
             'num_reward_dims': num_reward_dims,
-            'z_positive': z_positive.tolist(),
-            'z_negative': z_negative.tolist(),
+            'is_conditioned': is_conditioned,
+            'z_positive': z_positive.tolist() if is_conditioned else None,
+            'z_negative': z_negative.tolist() if is_conditioned else None,
         },
     )
 
     results = {}
+    policy, cfg = load_policy(ckpt, device)
 
-    # 1. Original policy
-    print("\n" + "=" * 60)
-    print("Running ORIGINAL policy...")
-    print("=" * 60)
-    orig_policy, orig_cfg = load_policy(original_ckpt, device)
-    orig_log = run_original_policy(orig_policy, orig_cfg, n_rollouts, output_dir, device)
-    results['original'] = extract_metrics(orig_log)
-    log_metrics_to_wandb(results['original'], 'original')
-    del orig_policy
-    torch.cuda.empty_cache()
-
-    # 2-4. Conditioned policy at z_pos, z_zero, z_neg
-    # Skip if conditioned checkpoint is the same as original (e.g. demo_only baseline)
-    if os.path.abspath(conditioned_ckpt) == os.path.abspath(original_ckpt):
-        print("\nConditioned checkpoint is the same as original — skipping conditioned eval.")
-    else:
-        cond_policy, cond_cfg = load_policy(conditioned_ckpt, device)
+    if is_conditioned:
         for z_label, z_target in [('z_pos', z_positive), ('z_zero', z_zero), ('z_neg', z_negative)]:
             print(f"\n{'=' * 60}")
             print(f"Running CONDITIONED policy @ {z_label}={z_target}...")
             print("=" * 60)
             cond_log = run_conditioned_policy(
-                cond_policy, cond_cfg, n_rollouts, z_target, num_reward_dims, output_dir, device)
+                policy, cfg, n_rollouts, z_target, num_reward_dims, output_dir, device)
             results[z_label] = extract_metrics(cond_log)
             log_metrics_to_wandb(results[z_label], z_label)
+    else:
+        print("\n" + "=" * 60)
+        print("Running policy (unconditioned)...")
+        print("=" * 60)
+        log = run_original_policy(policy, cfg, n_rollouts, output_dir, device)
+        results['policy'] = extract_metrics(log)
+        log_metrics_to_wandb(results['policy'], 'policy')
 
-        del cond_policy
-        torch.cuda.empty_cache()
+    del policy
+    torch.cuda.empty_cache()
 
     # Print comparison table
     core_keys = ['mean_success', 'mean_speed_reward', 'mean_smoothness', 'mean_score', 'mean_throughput']
