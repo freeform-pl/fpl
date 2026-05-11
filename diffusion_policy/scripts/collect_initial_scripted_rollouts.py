@@ -430,7 +430,10 @@ def create_policy(env, target_peg='random', noise_level=0.0, speed_factor=1.0):
 @click.option('--noise_max', type=float, default=0.12, help='Max noise level (vmax) for bezier curves')
 @click.option('--speed_factor_left', type=float, default=1.0, help='Speed factor for left peg (>1=slower, <1=faster)')
 @click.option('--speed_factor_right', type=float, default=1.0, help='Speed factor for right peg (>1=slower, <1=faster)')
-def main(output_dir, num_episodes, seed, noise_min, noise_max, speed_factor_left, speed_factor_right):
+@click.option('--speed_factor_range_left', type=(float, float), default=None, help='Sample left peg speed uniformly from (min, max)')
+@click.option('--speed_factor_range_right', type=(float, float), default=None, help='Sample right peg speed uniformly from (min, max)')
+@click.option('--target_peg', type=click.Choice(['random', 'left', 'right']), default='random', help='Which peg to target (default: random)')
+def main(output_dir, num_episodes, seed, noise_min, noise_max, speed_factor_left, speed_factor_right, speed_factor_range_left, speed_factor_range_right, target_peg):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -438,8 +441,15 @@ def main(output_dir, num_episodes, seed, noise_min, noise_max, speed_factor_left
         torch.cuda.manual_seed_all(seed)
 
     print(f"Seed set to: {seed}")
-    print(f"Collecting {num_episodes} episodes with target_peg=random, noise in [{noise_min}, {noise_max}]")
-    print(f"Speed factors: left={speed_factor_left}, right={speed_factor_right}")
+    print(f"Collecting {num_episodes} episodes with target_peg={target_peg}, noise in [{noise_min}, {noise_max}]")
+    if speed_factor_range_left is not None:
+        print(f"Speed factor left: uniform [{speed_factor_range_left[0]}, {speed_factor_range_left[1]}]")
+    else:
+        print(f"Speed factor left: {speed_factor_left}")
+    if speed_factor_range_right is not None:
+        print(f"Speed factor right: uniform [{speed_factor_range_right[0]}, {speed_factor_range_right[1]}]")
+    else:
+        print(f"Speed factor right: {speed_factor_right}")
 
     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -461,14 +471,20 @@ def main(output_dir, num_episodes, seed, noise_min, noise_max, speed_factor_left
         success = False
         noise = noise_levels[ep_num]
         # Create policy with random peg; speed_factor set based on chosen peg
-        policy = create_policy(env, target_peg='random', noise_level=noise, speed_factor=1.0)
-        # Set speed factor based on peg chosen during __init__/reset()
+        policy = create_policy(env, target_peg=target_peg, noise_level=noise, speed_factor=1.0)
+        # Set speed factor (range or fixed per peg)
         if policy.target_peg == 'left':
-            policy.speed_factor = speed_factor_left
+            if speed_factor_range_left is not None:
+                policy.speed_factor = np.random.uniform(speed_factor_range_left[0], speed_factor_range_left[1])
+            else:
+                policy.speed_factor = speed_factor_left
         else:
-            policy.speed_factor = speed_factor_right
+            if speed_factor_range_right is not None:
+                policy.speed_factor = np.random.uniform(speed_factor_range_right[0], speed_factor_range_right[1])
+            else:
+                policy.speed_factor = speed_factor_right
 
-        print(f'Episode {ep_num}: target_peg={policy.target_peg}, noise_level={noise:.4f}, speed_factor={policy.speed_factor}')
+        print(f'Episode {ep_num}: target_peg={policy.target_peg}, noise_level={noise:.4f}, speed_factor={policy.speed_factor:.2f}')
 
         attempt = 0
         max_attempts = 20
@@ -492,11 +508,7 @@ def main(output_dir, num_episodes, seed, noise_min, noise_max, speed_factor_left
             env.seed(np.random.randint(0, 10000000))
 
             obs = env.reset()
-            # Set speed factor based on target peg (chosen in policy.reset/replan)
-            if policy.target_peg == 'left':
-                policy.speed_factor = speed_factor_left
-            else:
-                policy.speed_factor = speed_factor_right
+            # On retry, keep the same speed_factor (already set above)
             policy.replan()
 
             rews = []

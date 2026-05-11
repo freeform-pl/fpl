@@ -120,7 +120,7 @@ def load_demo_obs(demo_hdf5, obs_keys, max_demos=None):
 
 
 @click.command()
-@click.option('--rollout_data', required=True, help='Path to .npz from collect_rollouts.py')
+@click.option('--rollout_data', required=True, help='Path(s) to .npz from collect_rollouts.py (comma-separated for multiple files)')
 @click.option('--demo_hdf5', required=True, help='Path to demo HDF5 for scoring original demos')
 @click.option('--output_dir', required=True)
 @click.option('--obs_keys', default='object,robot0_eef_pos,robot0_eef_quat,robot0_gripper_qpos')
@@ -156,20 +156,43 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
     )
 
     # Load rollout data (skip if path is "none" — demos-only mode)
-    has_rollouts = rollout_data and rollout_data != "none"
+    # Supports comma-separated list of npz files
+    rollout_paths = [p.strip() for p in rollout_data.split(',') if p.strip() and p.strip() != 'none']
+    has_rollouts = len(rollout_paths) > 0
     if has_rollouts:
-        data = np.load(rollout_data)
-        rollout_obs = data['obs']  # (N, T, D)
-        rollout_lengths = data['episode_lengths']  # (N,)
-        rollout_success = data['success']  # (N,)
-        rollout_speed = data['speed_reward']  # (N,)
-        rollout_smoothness = data['smoothness']  # (N,)
-        rollout_peg = data['peg_reward'] if 'peg_reward' in data else None
+        all_obs, all_lengths, all_success, all_speed, all_smooth, all_peg = [], [], [], [], [], []
+        for rpath in rollout_paths:
+            data = np.load(rpath)
+            n = len(data['episode_lengths'])
+            all_obs.append(data['obs'][:n])
+            all_lengths.append(data['episode_lengths'])
+            all_success.append(data['success'])
+            all_speed.append(data['speed_reward'])
+            all_smooth.append(data['smoothness'])
+            if 'peg_reward' in data:
+                all_peg.append(data['peg_reward'])
+            print(f"  Loaded {n} rollouts from {rpath}")
+
+        # Pad obs to common max length before concatenating
+        max_t = max(a.shape[1] for a in all_obs)
+        obs_dim = all_obs[0].shape[-1]
+        padded_obs = []
+        for obs_arr in all_obs:
+            if obs_arr.shape[1] < max_t:
+                pad = np.zeros((obs_arr.shape[0], max_t - obs_arr.shape[1], obs_dim), dtype=np.float32)
+                obs_arr = np.concatenate([obs_arr, pad], axis=1)
+            padded_obs.append(obs_arr)
+
+        rollout_obs = np.concatenate(padded_obs, axis=0)
+        rollout_lengths = np.concatenate(all_lengths)
+        rollout_success = np.concatenate(all_success)
+        rollout_speed = np.concatenate(all_speed)
+        rollout_smoothness = np.concatenate(all_smooth)
+        rollout_peg = np.concatenate(all_peg) if all_peg else None
 
         n_rollouts = len(rollout_obs)
-        obs_dim = rollout_obs.shape[-1]
 
-        print(f"Loaded {n_rollouts} rollouts, obs_dim={obs_dim}")
+        print(f"Total: {n_rollouts} rollouts from {len(rollout_paths)} file(s), obs_dim={obs_dim}")
         print(f"  Success rate: {rollout_success.mean():.3f}")
         print(f"  Mean speed:   {rollout_speed.mean():.3f}")
         print(f"  Mean smooth:  {rollout_smoothness.mean():.3f}")

@@ -5,10 +5,13 @@ defaults:
 name: train_reward_conditioned_flow_transformer_lowdim
 _target_: diffusion_policy.workspace.train_reward_conditioned_flow_transformer_lowdim_workspace.TrainRewardConditionedFlowTransformerLowdimWorkspace
 
-# obs_dim = base_obs_dim + num_reward_dims
+# obs_dim = base_obs_dim + conditioning_dims
 # num_reward_dims must match reward model output (K in scores.json)
 num_reward_dims: 3
-obs_dim: ${eval:'${task.obs_dim} + ${num_reward_dims}'}
+discrete_conditioning: False
+n_cond_bins: 21
+conditioning_dims: ${eval:'${num_reward_dims} * ${n_cond_bins} if ${discrete_conditioning} else ${num_reward_dims}'}
+obs_dim: ${eval:'${task.obs_dim} + ${conditioning_dims}'}
 action_dim: ${task.action_dim}
 task_name: ${task.name}
 exp_name: "default"
@@ -96,6 +99,8 @@ task:
     _target_: diffusion_policy.env_runner.reward_conditioned_lowdim_runner.RewardConditionedLowdimRunner
     target_rewards: [0.0, 0.0, 0.0]
     num_reward_dims: ${num_reward_dims}
+    discrete_conditioning: ${discrete_conditioning}
+    n_cond_bins: ${n_cond_bins}
     use_twopeg_wrapper: False
   dataset:
     _target_: diffusion_policy.dataset.reward_conditioned_lowdim_dataset.RewardConditionedLowdimDataset
@@ -107,6 +112,8 @@ task:
     pad_after: ${eval:'${n_action_steps}-1'}
     obs_keys: ${task.obs_keys}
     num_reward_dims: ${num_reward_dims}
+    discrete_conditioning: ${discrete_conditioning}
+    n_cond_bins: ${n_cond_bins}
     seed: 42
     val_ratio: 0.02
     max_train_episodes: null

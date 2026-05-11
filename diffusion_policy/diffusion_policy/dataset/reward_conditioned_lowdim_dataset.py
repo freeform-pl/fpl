@@ -7,6 +7,7 @@ so z-score values pass through unchanged.
 """
 
 from typing import Dict, List
+import os
 import torch
 import numpy as np
 import json
@@ -37,6 +38,22 @@ def normalizer_from_stat(stat):
     )
 
 
+def score_to_onehot(score, n_bins=21):
+    """Convert a score in [-1, 1] to a one-hot vector of length n_bins.
+    Bins are centered at -1.0, -0.9, ..., 0.9, 1.0."""
+    bucket = int(round((score + 1.0) * (n_bins - 1) / 2.0))
+    bucket = max(0, min(n_bins - 1, bucket))
+    onehot = np.zeros(n_bins, dtype=np.float32)
+    onehot[bucket] = 1.0
+    return onehot
+
+
+def scores_to_onehot(scores, n_bins=21):
+    """Convert (K,) scores to (K * n_bins,) concatenated one-hot vectors."""
+    parts = [score_to_onehot(s, n_bins) for s in scores]
+    return np.concatenate(parts)
+
+
 class RewardConditionedLowdimDataset(BaseLowdimDataset):
     def __init__(self,
             rollout_data_path: str,
@@ -51,6 +68,8 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
                 'robot0_eef_quat',
                 'robot0_gripper_qpos'],
             num_reward_dims: int = None,  # inferred from scores.json if not set
+            discrete_conditioning: bool = False,
+            n_cond_bins: int = 21,
             seed: int = 42,
             val_ratio: float = 0.0,
             max_train_episodes: int = None,
@@ -65,46 +84,75 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
         rollout_z = np.array(scores_data['rollout_scores_zscore'], dtype=np.float32)  # (N_rollout, K)
         demo_z = np.array(scores_data['demo_scores_zscore'], dtype=np.float32)  # (N_demo, K)
 
+        # Discretize scores into 0.1 buckets: -1.0, -0.9, ..., 0.9, 1.0
+        if len(rollout_z) > 0:
+            rollout_z = np.round(rollout_z * 10) / 10
+            rollout_z = np.clip(rollout_z, -1.0, 1.0)
+        if len(demo_z) > 0:
+            demo_z = np.round(demo_z * 10) / 10
+            demo_z = np.clip(demo_z, -1.0, 1.0)
+
         # Infer num_reward_dims from scores file
         if num_reward_dims is None:
             num_reward_dims = rollout_z.shape[1]
-        print(f"Reward dims: {num_reward_dims} ({scores_data.get('reward_names', [])})")
+        conditioning_dims = num_reward_dims * n_cond_bins if discrete_conditioning else num_reward_dims
+        print(f"Reward dims: {num_reward_dims} ({scores_data.get('reward_names', [])}), "
+              f"discrete={discrete_conditioning}, conditioning_dims={conditioning_dims}")
 
         replay_buffer = ReplayBuffer.create_empty_numpy()
 
         # Load rollout data (skip if rollout_data_path is "none" — demos-only mode)
-        has_rollouts = rollout_data_path and rollout_data_path != "none"
+        # Supports comma-separated list of npz files
+        rollout_paths = [p.strip() for p in rollout_data_path.split(',')
+                         if p.strip() and p.strip() != 'none'] if rollout_data_path else []
+        has_rollouts = len(rollout_paths) > 0
         rollout_action_dim = None
         if has_rollouts:
-            data = np.load(rollout_data_path)
-            rollout_obs = data['obs']  # (N, T, D)
-            rollout_actions = data['actions']  # (N, T, Da)
-            rollout_lengths = data['episode_lengths']  # (N,)
-            rollout_action_dim = rollout_actions.shape[-1]
+            # Load and concatenate all rollout files
+            all_rollout_obs, all_rollout_actions, all_rollout_lengths = [], [], []
+            for rpath in rollout_paths:
+                data = np.load(rpath)
+                n = len(data['episode_lengths'])
+                all_rollout_obs.append((data['obs'][:n], data['episode_lengths']))
+                all_rollout_actions.append(data['actions'][:n])
+                all_rollout_lengths.append(data['episode_lengths'])
+                print(f"  Loaded {n} rollouts from {rpath}")
 
-            for i in tqdm(range(len(rollout_obs)), desc="Loading rollout episodes"):
-                L_obs = int(rollout_lengths[i])
-                # Actions might be shorter than obs
-                L_act = min(L_obs - 1, rollout_actions.shape[1])
-                if L_act <= 0:
-                    continue
+            # Process each file's episodes with the corresponding z-scores
+            rollout_offset = 0
+            for file_idx, rpath in enumerate(rollout_paths):
+                r_obs = all_rollout_obs[file_idx][0]
+                r_lengths = all_rollout_lengths[file_idx]
+                r_actions = all_rollout_actions[file_idx]
+                n_eps = len(r_lengths)
+                rollout_action_dim = r_actions.shape[-1]
 
-                obs_i = rollout_obs[i, :L_obs].astype(np.float32)
-                act_i = rollout_actions[i, :L_act].astype(np.float32)
+                for i in tqdm(range(n_eps), desc=f"Loading rollouts from {os.path.basename(rpath)}"):
+                    L_obs = int(r_lengths[i])
+                    L_act = min(L_obs - 1, r_actions.shape[1])
+                    if L_act <= 0:
+                        continue
 
-                # Augment obs with reward z-scores (same for all timesteps)
-                reward_vals = rollout_z[i]  # (K,)
-                reward_aug = np.broadcast_to(reward_vals, (L_obs, num_reward_dims)).copy()
-                obs_aug = np.concatenate([obs_i, reward_aug], axis=-1)  # (T, D+K)
+                    obs_i = r_obs[i, :L_obs].astype(np.float32)
+                    act_i = r_actions[i, :L_act].astype(np.float32)
 
-                # Truncate obs to match action length + 1 (actions are 1 shorter than obs)
-                # Actually, just use min of both
-                L = min(len(obs_aug), L_act)
-                episode = {
-                    'obs': obs_aug[:L],
-                    'action': act_i[:L],
-                }
-                replay_buffer.add_episode(episode)
+                    # Augment obs with reward conditioning (same for all timesteps)
+                    reward_vals = rollout_z[rollout_offset + i]  # (K,)
+                    if discrete_conditioning:
+                        cond_vec = scores_to_onehot(reward_vals, n_cond_bins)
+                    else:
+                        cond_vec = reward_vals
+                    reward_aug = np.broadcast_to(cond_vec, (L_obs, conditioning_dims)).copy()
+                    obs_aug = np.concatenate([obs_i, reward_aug], axis=-1)
+
+                    L = min(len(obs_aug), L_act)
+                    episode = {
+                        'obs': obs_aug[:L],
+                        'action': act_i[:L],
+                    }
+                    replay_buffer.add_episode(episode)
+                rollout_offset += n_eps
+            print(f"Total: {rollout_offset} rollout episodes from {len(rollout_paths)} file(s)")
         else:
             print("No rollout data — loading demos only.")
 
@@ -134,9 +182,13 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
                 obs_i = obs_i[:L]
                 act_i = act_i[:L]
 
-                # Augment obs with demo reward z-scores
+                # Augment obs with demo reward conditioning
                 reward_vals = demo_z[i]
-                reward_aug = np.broadcast_to(reward_vals, (L, num_reward_dims)).copy()
+                if discrete_conditioning:
+                    cond_vec = scores_to_onehot(reward_vals, n_cond_bins)
+                else:
+                    cond_vec = reward_vals
+                reward_aug = np.broadcast_to(cond_vec, (L, conditioning_dims)).copy()
                 obs_aug = np.concatenate([obs_i, reward_aug], axis=-1)
 
                 episode = {
@@ -169,6 +221,7 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
         self.pad_before = pad_before
         self.pad_after = pad_after
         self.num_reward_dims = num_reward_dims
+        self.conditioning_dims = conditioning_dims
 
     def get_validation_dataset(self):
         val_set = copy.copy(self)
@@ -188,9 +241,9 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
         action_stat = array_to_stats(self.replay_buffer['action'])
         normalizer['action'] = get_identity_normalizer_from_stat(action_stat)
 
-        # Obs: normalize first D dims normally, last K dims with identity
-        all_obs = self.replay_buffer['obs']  # (total_steps, D+K)
-        D = all_obs.shape[-1] - self.num_reward_dims
+        # Obs: normalize first D dims normally, last conditioning dims with identity
+        all_obs = self.replay_buffer['obs']  # (total_steps, D+C)
+        D = all_obs.shape[-1] - self.conditioning_dims
 
         obs_base = all_obs[:, :D]
         obs_reward = all_obs[:, D:]
@@ -218,8 +271,8 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
         base_scale = np.full(D, fill_value=1.0/max_abs, dtype=np.float32)
         base_offset = np.zeros(D, dtype=np.float32)
 
-        reward_scale = np.ones(self.num_reward_dims, dtype=np.float32)
-        reward_offset = np.zeros(self.num_reward_dims, dtype=np.float32)
+        reward_scale = np.ones(self.conditioning_dims, dtype=np.float32)
+        reward_offset = np.zeros(self.conditioning_dims, dtype=np.float32)
 
         full_scale = np.concatenate([base_scale, reward_scale])
         full_offset = np.concatenate([base_offset, reward_offset])

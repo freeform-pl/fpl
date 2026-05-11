@@ -28,5 +28,5 @@ source .venv/bin/activate
 # python main.py --stride 60 --seq_len 20 --img_size 128 --batch_size 64 --epochs 1000 --embed_dim 128 --vis_interval 10 --log_interval 1 --save_interval 50 --preferences_dir /iris/u/am208/droid-robot/preferences --cross_preferences_dir /iris/u/abhijnya/droid-robot/cross_preferences,/iris/u/am208/droid-robot/cross_preferences --preload --task fold_pants --preload_offsets 10
 
 # setup table
-python main.py --stride 30 --seq_len 20 --img_size 128 --batch_size 64 --epochs 1000 --embed_dim 128 --vis_interval 10 --log_interval 1 --save_interval 50 --preferences_dir /iris/u/am208/droid-robot/preferences_setup --cross_preferences_dir /iris/u/abhijnya/droid-robot/cross_preferences_setup,/iris/u/am208/droid-robot/cross_preferences_setup --preload --task setup_table --preload_offsets 10
+python main.py --stride 20 --seq_len 20 --img_size 128 --batch_size 64 --epochs 1000 --embed_dim 128 --vis_interval 10 --log_interval 1 --save_interval 50 --preferences_dir /iris/u/am208/droid-robot/preferences_setup --cross_preferences_dir /iris/u/abhijnya/droid-robot/cross_preferences_setup,/iris/u/am208/droid-robot/cross_preferences_setup --preload --task setup_table --preload_offsets 10
 

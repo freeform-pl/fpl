@@ -23,11 +23,12 @@ conda activate robodiffrew2
 find_best_ckpt() {
     local ckpt_dir="$1"
     local best_ckpt=""
-    local best_score=-999
+    local best_score=""
     for f in "${ckpt_dir}"/epoch=*-test_mean_score=*.ckpt; do
         [ -f "$f" ] || continue
-        score=$(echo "$f" | grep -oP 'test_mean_score=\K[0-9.]+')
-        if [ -n "$score" ] && (( $(echo "$score > $best_score" | bc -l) )); then
+        score=$(echo "$f" | grep -oP 'test_mean_score=\K[0-9]+\.[0-9]+')
+        [ -z "$score" ] && continue
+        if [ -z "$best_score" ] || (( $(echo "$score > $best_score" | bc -l) )); then
             best_score="$score"
             best_ckpt="$f"
         fi
@@ -54,6 +55,12 @@ SKIP_POLICY_TRAINING=${SKIP_POLICY_TRAINING:-false}
 IS_CONDITIONED_EVAL=${IS_CONDITIONED_EVAL:-true}
 USE_BEST_CKPT=${USE_BEST_CKPT:-true}
 SKIP_ROLLOUTS=${SKIP_ROLLOUTS:-false}
+DISCRETE_CONDITIONING=${DISCRETE_CONDITIONING:-false}
+TARGET_PEG=${TARGET_PEG:-random}
+EXTRA_POLICY_OVERRIDES=${EXTRA_POLICY_OVERRIDES:-}
+N_ITERATIONS=${N_ITERATIONS:-0}              # number of iterative refinement rounds after initial training
+N_ITER_ROLLOUTS=${N_ITER_ROLLOUTS:-200}      # total rollouts per iteration (split evenly across targets)
+CONDITIONING_TARGETS=${CONDITIONING_TARGETS:-}  # semicolon-separated targets, e.g. "0.9;0.0;-0.9"
 
 # Noise range for scripted trajectory smoothness variation
 NOISE_MIN=${NOISE_MIN:-0.0}
@@ -62,6 +69,14 @@ NOISE_MAX=${NOISE_MAX:-0.12}
 # Speed factors: left peg = fast, right peg = slow
 SPEED_FACTOR_LEFT=${SPEED_FACTOR_LEFT:-0.6}
 SPEED_FACTOR_RIGHT=${SPEED_FACTOR_RIGHT:-4.0}
+
+# Speed factor ranges (if set, override fixed factors with uniform sampling)
+SPEED_FACTOR_RANGE_LEFT=${SPEED_FACTOR_RANGE_LEFT:-}
+SPEED_FACTOR_RANGE_RIGHT=${SPEED_FACTOR_RANGE_RIGHT:-}
+
+# Speed range: if set, sample speed uniformly from [min, max] for both pegs (overrides per-peg factors)
+SPEED_RANGE_MIN=${SPEED_RANGE_MIN:-}
+SPEED_RANGE_MAX=${SPEED_RANGE_MAX:-}
 
 # Per-axis eval conditioning targets (scores normalized to [-1, 1])
 EVAL_Z_POSITIVE=${EVAL_Z_POSITIVE:-"[1.0,1.0,1.0]"}
@@ -90,13 +105,20 @@ SCORES_PATH="${REWARD_DIR}/scores.json"
 # ============================================================
 if [ ${RESUME_FROM_PHASE} -le 0 ]; then
     echo "=== Phase 0: Collecting ${N_SCRIPTED} scripted demos (left=fast, right=slow) ==="
+    SPEED_ARGS="--speed_factor_left ${SPEED_FACTOR_LEFT} --speed_factor_right ${SPEED_FACTOR_RIGHT}"
+    if [ -n "${SPEED_FACTOR_RANGE_LEFT}" ]; then
+        SPEED_ARGS="${SPEED_ARGS} --speed_factor_range_left ${SPEED_FACTOR_RANGE_LEFT}"
+    fi
+    if [ -n "${SPEED_FACTOR_RANGE_RIGHT}" ]; then
+        SPEED_ARGS="${SPEED_ARGS} --speed_factor_range_right ${SPEED_FACTOR_RANGE_RIGHT}"
+    fi
     python scripts/collect_initial_scripted_rollouts.py \
         -o "${SCRIPTED_DIR}" \
         -n ${N_SCRIPTED} \
         --noise_min ${NOISE_MIN} \
         --noise_max ${NOISE_MAX} \
-        --speed_factor_left ${SPEED_FACTOR_LEFT} \
-        --speed_factor_right ${SPEED_FACTOR_RIGHT}
+        --target_peg ${TARGET_PEG} \
+        ${SPEED_ARGS}
 else
     echo "=== Phase 0: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
 fi
@@ -185,6 +207,12 @@ elif [ ${RESUME_FROM_PHASE} -le 4 ]; then
     if [ "${IS_CONDITIONED_EVAL}" = "true" ]; then
         EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++task.env_runner.use_twopeg_wrapper=True"
     fi
+    if [ "${DISCRETE_CONDITIONING}" = "true" ]; then
+        EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++discrete_conditioning=True"
+    fi
+    if [ -n "${EXTRA_POLICY_OVERRIDES}" ]; then
+        EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ${EXTRA_POLICY_OVERRIDES}"
+    fi
     eval python train.py \
         --config-name="${COND_CONFIG}" \
         task=square_twopeg_lowdim \
@@ -239,6 +267,109 @@ if [ ${RESUME_FROM_PHASE} -le 5 ]; then
     python scripts/eval_conditioned.py ${EVAL_ARGS}
 else
     echo "=== Phase 5: SKIPPED ==="
+fi
+
+# ============================================================
+# Iterative refinement loop
+# ============================================================
+if [ ${N_ITERATIONS} -gt 0 ]; then
+    echo "=== Starting ${N_ITERATIONS} iterative refinement rounds ==="
+
+    if [ -z "${CONDITIONING_TARGETS}" ]; then
+        echo "ERROR: CONDITIONING_TARGETS must be set for iterative refinement (e.g. '0.9;0.0;-0.9')"
+        exit 1
+    fi
+
+    ITER_ROLLOUT_DIR="${SHARED_DATA_DIR}/iter_rollouts"
+    mkdir -p "${ITER_ROLLOUT_DIR}"
+
+    # Track all rollout npz files (comma-separated) across iterations
+    ALL_ROLLOUT_FILES=""
+    if [ "${ROLLOUT_PATH}" != "none" ] && [ -f "${ROLLOUT_PATH}" ]; then
+        ALL_ROLLOUT_FILES="${ROLLOUT_PATH}"
+    fi
+
+    for ITER in $(seq 1 ${N_ITERATIONS}); do
+        echo ""
+        echo "============================================================"
+        echo "=== Iteration ${ITER}/${N_ITERATIONS}"
+        echo "============================================================"
+
+        ITER_OUTPUT_DIR="${ITER_ROLLOUT_DIR}/iter${ITER}"
+
+        # --- Step A: Collect rollouts from conditioned policy ---
+        echo "=== Iter ${ITER} Step A: Collecting ${N_ITER_ROLLOUTS} total rollouts from conditioned policy ==="
+        echo "  Conditioning targets: ${CONDITIONING_TARGETS}"
+        COLLECT_ARGS="--checkpoint ${COND_CKPT} --n_rollouts ${N_ITER_ROLLOUTS}"
+        COLLECT_ARGS="${COLLECT_ARGS} --output_dir ${ITER_OUTPUT_DIR}"
+        COLLECT_ARGS="${COLLECT_ARGS} --wandb_project ${WANDB_PROJECT}"
+        COLLECT_ARGS="${COLLECT_ARGS} --conditioned --num_reward_dims ${NUM_REWARD_DIMS}"
+        COLLECT_ARGS="${COLLECT_ARGS} --conditioning_targets '${CONDITIONING_TARGETS}'"
+        if [ "${DISCRETE_CONDITIONING}" = "true" ]; then
+            COLLECT_ARGS="${COLLECT_ARGS} --discrete_conditioning --n_cond_bins 21"
+        fi
+        eval python scripts/collect_rollouts.py ${COLLECT_ARGS}
+
+        # Gather new npz files from this iteration
+        ITER_FILES=$(find "${ITER_OUTPUT_DIR}" -name "rollouts_cond_*.npz" -type f | sort | tr '\n' ',' | sed 's/,$//')
+        if [ -n "${ALL_ROLLOUT_FILES}" ]; then
+            ALL_ROLLOUT_FILES="${ALL_ROLLOUT_FILES},${ITER_FILES}"
+        else
+            ALL_ROLLOUT_FILES="${ITER_FILES}"
+        fi
+        echo "  All rollout files: ${ALL_ROLLOUT_FILES}"
+
+        # --- Step B: Retrain reward model ---
+        echo "=== Iter ${ITER} Step B: Training reward model ==="
+        ITER_REWARD_DIR="${PIPELINE_DIR}/reward_model_iter${ITER}"
+        python reward_model/train_reward_model.py \
+            --rollout_data "${ALL_ROLLOUT_FILES}" \
+            --demo_hdf5 "${SCRIPTED_HDF5}" \
+            --output_dir "${ITER_REWARD_DIR}" \
+            --epochs ${REWARD_EPOCHS} \
+            --wandb_project "${WANDB_PROJECT}" \
+            --reward_axes "${REWARD_AXES}"
+        SCORES_PATH="${ITER_REWARD_DIR}/scores.json"
+
+        # --- Step C: Retrain conditioned policy ---
+        echo "=== Iter ${ITER} Step C: Training conditioned policy ==="
+        ITER_POLICY_DIR="${PIPELINE_DIR}/policy_output_iter${ITER}"
+        EXTRA_OVERRIDES="++num_reward_dims=${NUM_REWARD_DIMS} ++scores_path=${SCORES_PATH}"
+        if [ "${IS_CONDITIONED_EVAL}" = "true" ]; then
+            EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++task.env_runner.use_twopeg_wrapper=True"
+        fi
+        if [ "${DISCRETE_CONDITIONING}" = "true" ]; then
+            EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++discrete_conditioning=True"
+        fi
+        if [ -n "${EXTRA_POLICY_OVERRIDES}" ]; then
+            EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ${EXTRA_POLICY_OVERRIDES}"
+        fi
+        eval python train.py \
+            --config-name="${COND_CONFIG}" \
+            task=square_twopeg_lowdim \
+            "rollout_data_path='${ALL_ROLLOUT_FILES}'" \
+            demo_hdf5_path="${SCRIPTED_HDF5}" \
+            training.num_epochs=${COND_POLICY_EPOCHS} \
+            logging.project="${WANDB_PROJECT}" \
+            hydra.run.dir="${ITER_POLICY_DIR}" \
+            task.env_runner.dataset_path="${SCRIPTED_HDF5}" \
+            ${EXTRA_OVERRIDES} \
+            ${EVAL_Z_OVERRIDES}
+
+        # Find best checkpoint from this iteration
+        ITER_CKPT_DIR="${ITER_POLICY_DIR}/checkpoints"
+        if [ "${USE_BEST_CKPT}" = "true" ]; then
+            COND_CKPT=$(find_best_ckpt "${ITER_CKPT_DIR}")
+            if [ -z "${COND_CKPT}" ]; then
+                COND_CKPT="${ITER_CKPT_DIR}/latest.ckpt"
+            fi
+        else
+            COND_CKPT="${ITER_CKPT_DIR}/latest.ckpt"
+        fi
+        echo "Iter ${ITER}: Using checkpoint ${COND_CKPT}"
+
+    done
+    echo "=== All ${N_ITERATIONS} iterations complete ==="
 fi
 
 echo "=== Pipeline complete ==="

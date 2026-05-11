@@ -36,18 +36,29 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
     - Append target reward values to observations
     """
 
-    def __init__(self, num_reward_dims=3, target_rewards=None, use_twopeg_wrapper=False, **kwargs):
+    def __init__(self, num_reward_dims=3, target_rewards=None, use_twopeg_wrapper=False,
+                 discrete_conditioning=False, n_cond_bins=21, **kwargs):
         """
         Args:
             num_reward_dims: number of reward dimensions
             target_rewards: optional list of K floats — overridden by workspace at eval
             use_twopeg_wrapper: if True, replace envs with TwoPeg wrapper (for scripted two-peg tasks)
+            discrete_conditioning: if True, convert target_rewards to one-hot encoding
+            n_cond_bins: number of bins for discrete conditioning (default 21 for [-1, 1] in 0.1 steps)
             **kwargs: passed to RobomimicLowdimRunner
         """
         super().__init__(**kwargs)
         self.num_reward_dims = num_reward_dims
+        self.discrete_conditioning = discrete_conditioning
+        self.n_cond_bins = n_cond_bins
         if target_rewards is not None:
-            self.target_rewards = np.array(target_rewards, dtype=np.float32)
+            tr = np.array(target_rewards, dtype=np.float32)
+            # Truncate or pad to match num_reward_dims
+            if len(tr) != num_reward_dims:
+                self.target_rewards = np.zeros(num_reward_dims, dtype=np.float32)
+                self.target_rewards[:min(len(tr), num_reward_dims)] = tr[:num_reward_dims]
+            else:
+                self.target_rewards = tr
         else:
             self.target_rewards = np.zeros(num_reward_dims, dtype=np.float32)
 
@@ -355,8 +366,14 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
         return log_data
 
     def _augment_obs(self, obs):
-        """Append target reward values to obs. obs: (B, T, D) -> (B, T, D+K)"""
+        """Append target reward conditioning to obs. obs: (B, T, D) -> (B, T, D+C)"""
         B, T, D = obs.shape
-        reward_aug = np.broadcast_to(
-            self.target_rewards, (B, T, self.num_reward_dims)).copy()
+        if self.discrete_conditioning:
+            from diffusion_policy.dataset.reward_conditioned_lowdim_dataset import scores_to_onehot
+            cond_vec = scores_to_onehot(self.target_rewards, self.n_cond_bins)
+            cond_dim = len(cond_vec)
+        else:
+            cond_vec = self.target_rewards
+            cond_dim = self.num_reward_dims
+        reward_aug = np.broadcast_to(cond_vec, (B, T, cond_dim)).copy()
         return np.concatenate([obs, reward_aug], axis=-1)
