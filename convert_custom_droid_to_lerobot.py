@@ -192,11 +192,6 @@ def main(args: Args):
                     "shape": (IMAGE_SIZE[1], IMAGE_SIZE[0], 3),
                     "names": ["height", "width", "channel"],
                 },
-                "exterior_image_2_left": {
-                    "dtype": "image",
-                    "shape": (IMAGE_SIZE[1], IMAGE_SIZE[0], 3),
-                    "names": ["height", "width", "channel"],
-                },
                 "wrist_image_left": {
                     "dtype": "image",
                     "shape": (IMAGE_SIZE[1], IMAGE_SIZE[0], 3),
@@ -331,7 +326,6 @@ def main(args: Args):
                     t0 = time.time()
                     dataset.add_frame({
                         "exterior_image_1_left": resized_agent_np[t],
-                        "exterior_image_2_left": resized_agent_np[t],
                         "wrist_image_left": resized_wrist_np[t],
                         "joint_position": joint_pos[t].astype(np.float32),
                         "gripper_position": gripper_obs[t].astype(np.float32),
