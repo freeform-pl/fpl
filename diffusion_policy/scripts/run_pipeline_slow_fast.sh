@@ -280,7 +280,7 @@ if [ ${N_ITERATIONS} -gt 0 ]; then
         exit 1
     fi
 
-    ITER_ROLLOUT_DIR="${SHARED_DATA_DIR}/iter_rollouts"
+    ITER_ROLLOUT_DIR="${PIPELINE_DIR}/iter_rollouts"
     mkdir -p "${ITER_ROLLOUT_DIR}"
 
     # Track all rollout npz files (comma-separated) across iterations
@@ -347,7 +347,7 @@ if [ ${N_ITERATIONS} -gt 0 ]; then
         eval python train.py \
             --config-name="${COND_CONFIG}" \
             task=square_twopeg_lowdim \
-            "rollout_data_path='${ALL_ROLLOUT_FILES}'" \
+            "rollout_data_path=\'${ALL_ROLLOUT_FILES}\'" \
             demo_hdf5_path="${SCRIPTED_HDF5}" \
             training.num_epochs=${COND_POLICY_EPOCHS} \
             logging.project="${WANDB_PROJECT}" \

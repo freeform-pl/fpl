@@ -30,16 +30,16 @@ export SHARED_DATA_DIR="shared_data_slow_fast_medium_no_rollouts_mid_range"
 
 # Per-axis eval conditioning targets
 export REWARD_AXES="speed_reward,peg_reward"
-export EVAL_Z_POSITIVE="[0.9,0.95]"
-export EVAL_Z_NEGATIVE="[0.5,0.95]"
+export EVAL_Z_POSITIVE="[0.9,0.75]"
+export EVAL_Z_NEGATIVE="[0.5,0.75]"
 export NUM_REWARD_DIMS=2
 export REWARD_EPOCHS=20
 
 # Iterative refinement: collect rollouts with diverse conditioning, retrain reward + policy
 export N_ITERATIONS=3
 export N_ITER_ROLLOUTS=200
-# speed_reward in [0.5, 0.9] x peg_reward fixed at 0.95
-export CONDITIONING_TARGETS="0.5,0.95;0.6,0.95;0.7,0.95;0.8,0.95;0.9,0.95"
+# speed_reward in [0.5, 0.9] x peg_reward fixed at 0.75
+export CONDITIONING_TARGETS="0.5,0.75;0.6,0.75;0.7,0.75;0.8,0.75;0.9,0.75"
 
-export RESUME_FROM_PHASE=6
+export RESUME_FROM_PHASE=9
 bash scripts/run_pipeline_slow_fast.sh

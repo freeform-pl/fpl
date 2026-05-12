@@ -270,7 +270,7 @@ def parse_conditioning_targets(targets_str, num_reward_dims):
     """
     targets = []
     for part in targets_str.split(';'):
-        vals = np.array([float(x) for x in part.strip().split(',')], dtype=np.float32)
+        vals = np.array([float(x) for x in part.strip().split(',')], dtype=np.float64)
         assert len(vals) == num_reward_dims, \
             f"Conditioning target {part} has {len(vals)} dims but num_reward_dims={num_reward_dims}"
         targets.append(vals)

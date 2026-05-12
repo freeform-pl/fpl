@@ -125,7 +125,11 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
                 with h5py.File(dataset_path, 'r') as f:
                     init_state = f[f'data/demo_{train_idx}/states'][0]
 
-                def init_fn(env, init_state=init_state, enable_render=enable_render):
+                # Extract nut xy from the demo state and build a fresh init state
+                # so reset_to works properly with the renderer-enabled env
+                nut_xy = init_state[10:12].copy()
+
+                def init_fn(env, nut_xy=nut_xy, enable_render=enable_render):
                     assert isinstance(env.env, VideoRecordingWrapper)
                     env.env.video_recoder.stop()
                     env.env.file_path = None
@@ -135,7 +139,9 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
                         filename.parent.mkdir(parents=False, exist_ok=True)
                         env.env.file_path = str(filename)
                     assert isinstance(env.env.env, RobomimicTwoPegLowdimWrapper)
-                    env.env.env.init_state = init_state
+                    fresh_state = env.env.env._make_init_state()
+                    fresh_state[10:12] = nut_xy
+                    env.env.env.init_state = fresh_state
 
                 new_init_fn_dills.append(dill.dumps(init_fn))
             else:

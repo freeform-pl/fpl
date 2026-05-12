@@ -41,6 +41,7 @@ export EXTRA_POLICY_OVERRIDES="++policy.model.n_layer=12 ++policy.model.n_emb=51
 export N_ITERATIONS=3
 export N_ITER_ROLLOUTS=200
 export CONDITIONING_TARGETS="0.5,0.95;0.6,0.95;0.7,0.95;0.8,0.95;0.9,0.95"
-
-export RESUME_FROM_PHASE=0
+export COND_POLICY_EPOCHS=2000
+export BASE_POLICY_EPOCHS=2000
+export RESUME_FROM_PHASE=1
 bash scripts/run_pipeline_slow_fast.sh
