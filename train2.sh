@@ -29,4 +29,3 @@ source .venv/bin/activate
 
 # setup table
 python main.py --stride 20 --seq_len 20 --img_size 128 --batch_size 64 --epochs 1000 --embed_dim 128 --vis_interval 10 --log_interval 1 --save_interval 50 --preferences_dir /iris/u/am208/droid-robot/preferences_setup --cross_preferences_dir /iris/u/abhijnya/droid-robot/cross_preferences_setup,/iris/u/am208/droid-robot/cross_preferences_setup --preload --task setup_table --preload_offsets 10
-

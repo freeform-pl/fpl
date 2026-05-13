@@ -311,9 +311,12 @@ def plot_per_frame_rewards(
 ) -> None:
     """Plot per-frame reward predictions for each axis across a trajectory.
 
-    Generates one figure per trajectory with K subplots (one per preference axis),
-    showing the raw per-frame reward value at each timestep.
+    Generates one figure per trajectory with:
+      - Top row: filmstrip of third-person camera frames (aligned with x-axis)
+      - Below: K subplots (one per preference axis) showing per-frame reward values
     """
+    from matplotlib.gridspec import GridSpec
+
     os.makedirs(out_dir, exist_ok=True)
     selected = hdf5_paths[:n_trajectories]
     K = len(preference_keys)
@@ -331,29 +334,47 @@ def plot_per_frame_rewards(
         fr = frame_rewards[0].cpu().numpy()  # (T, K)
         padding = traj["padding_mask"].numpy()  # (T,)
         n_real = int((~padding).sum())
-        fr = fr[:n_real]  # drop padded frames
+        fr = fr[:n_real]
         timesteps = np.arange(n_real)
 
-        fig, axes = plt.subplots(K, 1, figsize=(10, 3 * K), sharex=True)
-        if K == 1:
-            axes = [axes]
+        # Extract frames as (T, H, W, 3) uint8 for display
+        frames = traj["third_person"][:n_real].permute(0, 2, 3, 1).numpy()  # (T, H, W, 3)
 
         traj_name = os.path.splitext(os.path.basename(hdf5_path))[0]
         parent_name = os.path.basename(os.path.dirname(hdf5_path))
-        fig.suptitle(f"Per-frame rewards — {parent_name}/{traj_name}", fontsize=13)
 
-        for k, ax in enumerate(axes):
+        # Layout: filmstrip row (height 2) + K reward rows (height 2 each)
+        fig_h = 2 + 2.5 * K
+        fig = plt.figure(figsize=(max(12, n_real * 0.8), fig_h))
+        gs = GridSpec(K + 1, n_real, figure=fig,
+                      height_ratios=[1.5] + [1] * K,
+                      hspace=0.35, wspace=0.05)
+
+        # --- Filmstrip row: one image per frame ---
+        for t in range(n_real):
+            ax_img = fig.add_subplot(gs[0, t])
+            ax_img.imshow(frames[t])
+            ax_img.set_xticks([])
+            ax_img.set_yticks([])
+            ax_img.set_xlabel(str(t), fontsize=7)
+
+        # --- Reward rows: one plot per preference axis spanning all columns ---
+        for k in range(K):
+            ax = fig.add_subplot(gs[k + 1, :])
             values = fr[:, k]
-            ax.plot(timesteps, values, marker="o", markersize=3, linewidth=1.2)
-            ax.set_ylabel(preference_keys[k], fontsize=10)
+            ax.plot(timesteps, values, marker="o", markersize=4, linewidth=1.2)
+            ax.set_ylabel(preference_keys[k], fontsize=9)
             ax.axhline(0, color="gray", linewidth=0.5, linestyle="--")
             ax.grid(True, alpha=0.3)
+            ax.set_xlim(-0.5, n_real - 0.5)
+            ax.set_xticks(timesteps)
+            if k < K - 1:
+                ax.set_xticklabels([])
 
-        axes[-1].set_xlabel("Frame index")
-        fig.tight_layout(rect=[0, 0, 1, 0.96])
+        fig.suptitle(f"Per-frame rewards — {parent_name}/{traj_name}", fontsize=13, y=0.99)
 
         out_path = os.path.join(out_dir, f"per_frame_{idx:02d}_{parent_name}_{traj_name}.png")
-        fig.savefig(out_path, dpi=150)
+        fig.savefig(out_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
         print(f"  Per-frame plot saved → {out_path}")
 
