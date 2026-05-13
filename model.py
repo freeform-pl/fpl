@@ -287,6 +287,30 @@ class DiscountedRewardModel(nn.Module):
             rewards = torch.sigmoid(rewards)
         return rewards
 
+    def forward_per_frame(self, third_person: torch.Tensor, wrist: torch.Tensor, padding_mask: torch.Tensor = None) -> torch.Tensor:
+        """
+        Same as forward but returns per-frame rewards instead of the discounted sum.
+
+        Returns:
+            frame_rewards: (B, T, K) — raw per-frame reward for each preference axis
+        """
+        B, T = third_person.shape[:2]
+
+        tp_flat = third_person.flatten(0, 1)
+        wr_flat = wrist.flatten(0, 1)
+        emb = self.frame_encoder(tp_flat, wr_flat)
+        emb = emb.view(B, T, -1)
+
+        frame_rewards = torch.stack(
+            [head(emb).squeeze(-1) for head in self.reward_heads],
+            dim=-1,
+        )  # (B, T, K)
+
+        if padding_mask is not None:
+            frame_rewards = frame_rewards.masked_fill(padding_mask.unsqueeze(-1), float("nan"))
+
+        return frame_rewards
+
 
 # ---------------------------------------------------------------------------
 # Bradley-Terry loss

@@ -300,6 +300,64 @@ def visualize_distributions(
         wandb.log(wandb_log)
 
 
+def plot_per_frame_rewards(
+    model: "DiscountedRewardModel",
+    hdf5_paths: list[str],
+    preference_keys: list[str],
+    args,
+    device: torch.device,
+    out_dir: str,
+    n_trajectories: int = 10,
+) -> None:
+    """Plot per-frame reward predictions for each axis across a trajectory.
+
+    Generates one figure per trajectory with K subplots (one per preference axis),
+    showing the raw per-frame reward value at each timestep.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    selected = hdf5_paths[:n_trajectories]
+    K = len(preference_keys)
+
+    for idx, hdf5_path in enumerate(selected):
+        traj = load_trajectory(hdf5_path, args.stride, args.seq_len, (args.img_size, args.img_size), offset=0)
+
+        with torch.no_grad():
+            frame_rewards = model.forward_per_frame(
+                traj["third_person"].unsqueeze(0).to(device),
+                traj["wrist"].unsqueeze(0).to(device),
+                traj["padding_mask"].unsqueeze(0).to(device),
+            )  # (1, T, K)
+
+        fr = frame_rewards[0].cpu().numpy()  # (T, K)
+        padding = traj["padding_mask"].numpy()  # (T,)
+        n_real = int((~padding).sum())
+        fr = fr[:n_real]  # drop padded frames
+        timesteps = np.arange(n_real)
+
+        fig, axes = plt.subplots(K, 1, figsize=(10, 3 * K), sharex=True)
+        if K == 1:
+            axes = [axes]
+
+        traj_name = os.path.splitext(os.path.basename(hdf5_path))[0]
+        parent_name = os.path.basename(os.path.dirname(hdf5_path))
+        fig.suptitle(f"Per-frame rewards — {parent_name}/{traj_name}", fontsize=13)
+
+        for k, ax in enumerate(axes):
+            values = fr[:, k]
+            ax.plot(timesteps, values, marker="o", markersize=3, linewidth=1.2)
+            ax.set_ylabel(preference_keys[k], fontsize=10)
+            ax.axhline(0, color="gray", linewidth=0.5, linestyle="--")
+            ax.grid(True, alpha=0.3)
+
+        axes[-1].set_xlabel("Frame index")
+        fig.tight_layout(rect=[0, 0, 1, 0.96])
+
+        out_path = os.path.join(out_dir, f"per_frame_{idx:02d}_{parent_name}_{traj_name}.png")
+        fig.savefig(out_path, dpi=150)
+        plt.close(fig)
+        print(f"  Per-frame plot saved → {out_path}")
+
+
 def print_stats(all_scores: dict[str, list[float]], quantile_edges: dict[str, list[float]]) -> None:
     """Print per-key min/max/percentiles and ASCII histograms for both bucket types."""
     print("\n" + "=" * 70)
@@ -593,6 +651,16 @@ def main():
         n_ranking=args.n_ranking, ranking_cell_size=args.ranking_cell_size,
     )
     print(f"Visualizations saved → {vis_dir}")
+
+    # --- Per-frame reward plots for discounted models ---
+    if model_type == "discounted":
+        print("\nGenerating per-frame reward plots...")
+        all_hdf5 = [hdf5 for hdf5, _, _, _ in all_scored]
+        plot_per_frame_rewards(
+            model, all_hdf5, args.preference_keys, args, device,
+            out_dir=os.path.join(vis_dir, "per_frame_rewards"),
+            n_trajectories=10,
+        )
 
     # --- Stats ---
     print_stats(all_scores, quantile_edges)

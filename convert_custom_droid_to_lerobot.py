@@ -164,8 +164,11 @@ class Args:
 
 
 def main(args: Args):
+    import os
+    import tempfile
+
     scores_dir = Path(args.scores_dir)
-    output_path = HF_LEROBOT_HOME / args.repo_name
+    final_output_path = HF_LEROBOT_HOME / args.repo_name
 
     # Find all score JSONs
     score_files = find_score_jsons(scores_dir)
@@ -174,12 +177,31 @@ def main(args: Args):
         print("Nothing to convert.")
         return
 
-    # Set up dataset
-    if output_path.exists() and not args.append:
-        print(f"Removing existing dataset at {output_path}")
-        shutil.rmtree(output_path)
+    # ── Step 1: Set up local scratch for output ──────────────────────────
+    scr_dir = Path("/scr/marcelto")
+    if scr_dir.exists():
+        local_tmp = scr_dir / "lerobot_convert"
+        local_tmp.mkdir(exist_ok=True)
+        print(f"\n=== Using local scratch: {local_tmp} ===")
+    else:
+        local_tmp = Path(tempfile.mkdtemp(prefix="lerobot_convert_"))
+        print(f"\n=== Using /tmp: {local_tmp} ===")
 
-    if args.append and output_path.exists():
+    # Point HF_LEROBOT_HOME to local disk for output
+    local_lerobot_home = local_tmp / "lerobot_output"
+    local_lerobot_home.mkdir(exist_ok=True)
+    os.environ["HF_LEROBOT_HOME"] = str(local_lerobot_home)
+    import lerobot.common.datasets.lerobot_dataset as lds
+    lds.HF_LEROBOT_HOME = local_lerobot_home
+    local_output_path = local_lerobot_home / args.repo_name
+
+    print(f"  Output will be written to {local_output_path}")
+
+    # ── Step 2: Set up dataset ─────────────────────────────────────────
+    if local_output_path.exists() and not args.append:
+        shutil.rmtree(local_output_path)
+
+    if args.append and local_output_path.exists():
         dataset = LeRobotDataset(repo_id=args.repo_name)
     else:
         dataset = LeRobotDataset.create(
@@ -217,30 +239,26 @@ def main(args: Args):
             image_writer_processes=0,
         )
 
+    # ── Step 3: Convert ────────────────────────────────────────────────
     total_episodes = 0
     skipped = 0
-
     t_total_start = time.time()
-
-
-    padding = np.zeros((*IMAGE_SIZE,3))
+    t_hdf5_read = 0.0
+    t_resize = 0.0
+    t_add_frame = 0.0
+    t_save_episode = 0.0
+    t_copy = 0.0
+    total_frames = 0
+    episode_metadata = []  # per-episode provenance info
 
     for score_file in tqdm(score_files, desc="Score files"):
-        t_resize = 0.0
-        t_hdf5_read = 0.0
-        t_add_frame = 0.0
-        t_save_episode = 0.0
-        t_json_read = 0.0
-        total_frames = 0
-        # Load score JSON
-        t0 = time.time()
         with open(score_file) as f:
             score_data = json.load(f)
-        t_json_read += time.time() - t0
 
-        source_hdf5 = Path(score_data["source_hdf5"])
+        source_hdf5_str = score_data["source_hdf5"]
+        source_hdf5 = Path(source_hdf5_str)
         if not source_hdf5.exists():
-            print(f"  [skip] source HDF5 not found: {source_hdf5}")
+            print(f"  [skip] source HDF5 not found: {source_hdf5_str}")
             skipped += 1
             continue
 
@@ -252,19 +270,17 @@ def main(args: Args):
 
         task_language = build_prompt(args.task_prompt, scores, args.decimal_places)
 
-        # Copy HDF5 to local disk to avoid slow NFS reads
-        import tempfile
-        t_copy = time.time()
+        # Copy HDF5 to local disk for fast reads
+        t0 = time.time()
         local_hdf5 = Path(tempfile.gettempdir()) / source_hdf5.name
         shutil.copy2(source_hdf5, local_hdf5)
-        print(f"  copied to local in {time.time() - t_copy:.1f}s")
+        t_copy += time.time() - t0
 
-        # Read trajectory from HDF5
         try:
             with h5py.File(local_hdf5, "r") as f:
                 demo_keys = list(f["data"].keys())
         except OSError as e:
-            print(f"  [skip] corrupted file {source_hdf5}: {e}")
+            print(f"  [skip] corrupted file {source_hdf5_str}: {e}")
             local_hdf5.unlink(missing_ok=True)
             skipped += 1
             continue
@@ -290,15 +306,15 @@ def main(args: Args):
                     wrist_view = obs["wrist"][:]
                     T = actions_vel.shape[0]
                 t_hdf5_read += time.time() - t0
-                print(f"  hdf5 read {time.time() - t0:.1f}s")
+
                 t0 = time.time()
-                agent_tensor = torch.from_numpy(agent_view)  # (T, H, W, 3)
+                agent_tensor = torch.from_numpy(agent_view)
                 wrist_tensor = torch.from_numpy(wrist_view)
-                resized_agent = resize_with_pad_torch(agent_tensor, IMAGE_SIZE[1], IMAGE_SIZE[0])  # (T, 224, 224, 3)
+                resized_agent = resize_with_pad_torch(agent_tensor, IMAGE_SIZE[1], IMAGE_SIZE[0])
                 resized_wrist = resize_with_pad_torch(wrist_tensor, IMAGE_SIZE[1], IMAGE_SIZE[0])
                 resized_agent_np = resized_agent.numpy()
                 resized_wrist_np = resized_wrist.numpy()
-                print("resized image shape", resized_wrist_np.shape)
+
                 if args.debug:
                     import matplotlib.pyplot as plt
                     fig, axes = plt.subplots(2, 2, figsize=(10, 10))
@@ -314,7 +330,7 @@ def main(args: Args):
                     plt.savefig("debug_resize.png", dpi=150)
                     plt.close()
                     print(f"  [debug] saved debug_resize.png (orig: {agent_view[0].shape} -> resized: {resized_agent_np[0].shape})")
-                    args.debug = False  # only save once
+                    args.debug = False
                 t_resize += time.time() - t0
 
                 for t in range(T):
@@ -335,19 +351,24 @@ def main(args: Args):
                     t_add_frame += time.time() - t0
                     total_frames += 1
 
-                print("resize", t_resize)
-                print("add frame", t_add_frame)
-
                 t0 = time.time()
                 dataset.save_episode()
                 t_save_episode += time.time() - t0
-                print("save episode", time.time() - t0)
+
+                episode_metadata.append({
+                    "episode_index": total_episodes,
+                    "source_hdf5": source_hdf5_str,
+                    "demo_key": demo_key,
+                    "score_file": str(score_file),
+                    "task_language": task_language,
+                    "num_frames": T,
+                })
                 total_episodes += 1
-                print(f"  {source_hdf5.name}/{demo_key} -> {task_language[:80]}...")
+                print(f"  {Path(source_hdf5_str).name}/{demo_key} -> {task_language[:80]}...")
 
             except Exception as e:
                 import traceback
-                print(f"  [skip] error {source_hdf5.name}/{demo_key}: {e}")
+                print(f"  [skip] error {Path(source_hdf5_str).name}/{demo_key}: {e}")
                 traceback.print_exc()
                 try:
                     dataset.episode_buffer = {"size": 0}
@@ -361,16 +382,38 @@ def main(args: Args):
     t_total = time.time() - t_total_start
     print(f"\n--- Timing breakdown ---")
     print(f"  Total:        {t_total:.1f}s")
-    print(f"  JSON read:    {t_json_read:.1f}s")
+    print(f"  HDF5 copy:    {t_copy:.1f}s")
     print(f"  HDF5 read:    {t_hdf5_read:.1f}s")
-    print(f"  Image resize: {t_resize:.1f}s ({total_frames * 3} images)")
+    print(f"  Image resize: {t_resize:.1f}s")
     print(f"  add_frame:    {t_add_frame:.1f}s ({total_frames} frames)")
     print(f"  save_episode: {t_save_episode:.1f}s ({total_episodes} episodes)")
-    print(f"  Other:        {t_total - t_json_read - t_hdf5_read - t_resize - t_add_frame - t_save_episode:.1f}s")
 
-    print(f"\nDone! Converted {total_episodes} episodes, skipped {skipped} -> {output_path}")
+    # Save episode metadata
+    metadata_path = local_output_path / "episode_metadata.json"
+    with open(metadata_path, "w") as f:
+        json.dump(episode_metadata, f, indent=2)
+    print(f"  Saved episode metadata ({len(episode_metadata)} episodes) to episode_metadata.json")
+
+    # ── Step 4: Copy dataset back to NFS ───────────────────────────────
+    print(f"\n=== Copying dataset back to NFS ===")
+    print(f"  {local_output_path} -> {final_output_path}")
+    t0 = time.time()
+    if final_output_path.exists():
+        shutil.rmtree(final_output_path)
+    final_output_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(local_output_path, final_output_path)
+    print(f"  Copied in {time.time() - t0:.1f}s")
+
+    # Only clean up if using /tmp (not /scr, which we keep for reuse)
+    if not scr_dir.exists():
+        shutil.rmtree(local_tmp, ignore_errors=True)
+    print(f"\nDone! Converted {total_episodes} episodes, skipped {skipped} -> {final_output_path}")
 
     if args.push_to_hub:
+        # Re-point HF_LEROBOT_HOME back to NFS for push
+        lds.HF_LEROBOT_HOME = HF_LEROBOT_HOME
+        os.environ["HF_LEROBOT_HOME"] = str(HF_LEROBOT_HOME)
+        dataset = LeRobotDataset(repo_id=args.repo_name)
         dataset.push_to_hub(
             tags=["droid", "panda", "preference"],
             private=True,
