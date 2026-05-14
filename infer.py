@@ -522,12 +522,15 @@ def main():
         if os.path.isdir(os.path.join(root, d))
     )
 
-    # Collect standalone HDF5 files (not inside subdirs, e.g. demos_62.hdf5)
+    # Collect standalone HDF5 files (not inside subdirs, e.g. demos_62.hdf5).
+    # Skip *_large.hdf5: those are un-resized (720x1280) and break the downstream pipeline.
     standalone_hdf5 = sorted(
         os.path.join(root, f)
         for root in args.preferences_dir
         for f in os.listdir(root)
-        if f.endswith(".hdf5") and os.path.isfile(os.path.join(root, f))
+        if f.endswith(".hdf5")
+        and not f.endswith("_large.hdf5")
+        and os.path.isfile(os.path.join(root, f))
     )
 
     # --- Pass 1: score all trajectories, collect raw scores ---

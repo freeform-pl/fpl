@@ -191,7 +191,7 @@ class QwenRewardModel(nn.Module):
             messages = [{"role": "user", "content": content}]
 
             text = self.processor.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=False
+                messages, tokenize=False, add_generation_prompt=True
             )
             all_texts.append(text)
             all_images.append(images)
@@ -243,7 +243,7 @@ class QwenRewardModel(nn.Module):
                 messages = [{"role": "user", "content": content}]
 
                 text = self.processor.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=False
+                    messages, tokenize=False, add_generation_prompt=True
                 )
                 all_texts.append(text)
                 all_images.append(images)

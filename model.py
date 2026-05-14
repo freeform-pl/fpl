@@ -333,25 +333,25 @@ def bradley_terry_loss(
     is_eq = (labels == 0.5)
 
     loss = torch.zeros(1, device=rewards_a.device)
-    n = 0
+    n = torch.zeros(1, device=rewards_a.device)
 
     if is_a.any():
         loss = loss + F.binary_cross_entropy(
             prob_a[is_a], torch.ones_like(prob_a[is_a]), reduction="sum"
         )
-        n += is_a.sum()
+        n = n + is_a.sum().float()
 
     if is_b.any():
         loss = loss + F.binary_cross_entropy(
             prob_a[is_b], torch.zeros_like(prob_a[is_b]), reduction="sum"
         )
-        n += is_b.sum()
+        n = n + is_b.sum().float()
 
-    if is_eq.any():
-        loss = loss + F.binary_cross_entropy(
+    if is_eq.any() and equal_weight > 0:
+        loss = loss + equal_weight * F.binary_cross_entropy(
             prob_a[is_eq], 0.5 * torch.ones_like(prob_a[is_eq]), reduction="sum"
         )
-        n += is_eq.sum()
+        n = n + equal_weight * is_eq.sum().float()
 
     loss = loss / n.clamp(min=1)
 

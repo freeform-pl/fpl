@@ -29,6 +29,7 @@ python main.py \
     --stride 20 --seq_len 20 --img_size 128 \
     --batch_size 32 --epochs 1000 \
     --lr 1e-5 \
+    --equal_weight 0.0 \
     --preload --preload_offsets 10 \
     --eval_interval 50 --vis_interval 999999 --log_interval 1 --save_interval 50 \
     --preferences_dir /iris/u/am208/droid-robot/preferences_setup \

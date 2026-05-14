@@ -23,6 +23,7 @@ import h5py
 import numpy as np
 import torch
 import torch.nn.functional as F
+import wandb
 from PIL import Image
 from tqdm import tqdm
 import tyro
@@ -162,6 +163,18 @@ class Args:
     debug: bool = False
     """Save debug_resize.png showing original vs resized images for the first episode"""
 
+    wandb_project: str = "lerobot_convert"
+    """Wandb project name for logging conversion metrics"""
+
+    wandb_entity: str | None = None
+    """Wandb entity (team/user). If None, uses default."""
+
+    no_wandb: bool = False
+    """Disable wandb logging"""
+
+    wandb_step_window: int = 100
+    """Number of add_frame calls to average over before logging a step-level entry to wandb"""
+
 
 def main(args: Args):
     import os
@@ -176,6 +189,24 @@ def main(args: Args):
     if not score_files:
         print("Nothing to convert.")
         return
+
+    # ── Wandb init ──────────────────────────────────────────────────────
+    wandb_run = None
+    if not args.no_wandb:
+        wandb_run = wandb.init(
+            project=args.wandb_project,
+            entity=args.wandb_entity,
+            name=args.repo_name.replace("/", "_"),
+            config={
+                "scores_dir": str(scores_dir),
+                "repo_name": args.repo_name,
+                "task_prompt": args.task_prompt,
+                "score_type": args.score_type,
+                "decimal_places": args.decimal_places,
+                "image_size": IMAGE_SIZE,
+                "num_score_files": len(score_files),
+            },
+        )
 
     # ── Step 1: Set up local scratch for output ──────────────────────────
     scr_dir = Path("/scr/marcelto")
@@ -251,6 +282,12 @@ def main(args: Args):
     total_frames = 0
     episode_metadata = []  # per-episode provenance info
 
+    # Rolling window for per-step wandb logging
+    step_window = max(1, args.wandb_step_window)
+    window_t_sum = 0.0
+    window_count = 0
+    window_idx = 0
+
     for score_file in tqdm(score_files, desc="Score files"):
         with open(score_file) as f:
             score_data = json.load(f)
@@ -270,11 +307,15 @@ def main(args: Args):
 
         task_language = build_prompt(args.task_prompt, scores, args.decimal_places)
 
+        # Capture source file size before copy
+        source_size_bytes = source_hdf5.stat().st_size
+
         # Copy HDF5 to local disk for fast reads
         t0 = time.time()
         local_hdf5 = Path(tempfile.gettempdir()) / source_hdf5.name
         shutil.copy2(source_hdf5, local_hdf5)
-        t_copy += time.time() - t0
+        t_copy_file = time.time() - t0
+        t_copy += t_copy_file
 
         try:
             with h5py.File(local_hdf5, "r") as f:
@@ -305,7 +346,12 @@ def main(args: Args):
                     agent_view = obs["agent_view"][:]
                     wrist_view = obs["wrist"][:]
                     T = actions_vel.shape[0]
-                t_hdf5_read += time.time() - t0
+                t_read_demo = time.time() - t0
+                t_hdf5_read += t_read_demo
+
+                # Capture pre-resize shapes
+                agent_shape_before = tuple(agent_view.shape)
+                wrist_shape_before = tuple(wrist_view.shape)
 
                 t0 = time.time()
                 agent_tensor = torch.from_numpy(agent_view)
@@ -314,6 +360,11 @@ def main(args: Args):
                 resized_wrist = resize_with_pad_torch(wrist_tensor, IMAGE_SIZE[1], IMAGE_SIZE[0])
                 resized_agent_np = resized_agent.numpy()
                 resized_wrist_np = resized_wrist.numpy()
+                t_resize_demo = time.time() - t0
+
+                # Capture post-resize shapes
+                agent_shape_after = tuple(resized_agent_np.shape)
+                wrist_shape_after = tuple(resized_wrist_np.shape)
 
                 if args.debug:
                     import matplotlib.pyplot as plt
@@ -331,8 +382,9 @@ def main(args: Args):
                     plt.close()
                     print(f"  [debug] saved debug_resize.png (orig: {agent_view[0].shape} -> resized: {resized_agent_np[0].shape})")
                     args.debug = False
-                t_resize += time.time() - t0
+                t_resize += t_resize_demo
 
+                t_add_frame_demo = 0.0
                 for t in range(T):
                     action = np.concatenate([
                         actions_vel[t].astype(np.float32),
@@ -348,12 +400,58 @@ def main(args: Args):
                         "actions": action,
                         "task": task_language,
                     })
-                    t_add_frame += time.time() - t0
+                    dt = time.time() - t0
+                    t_add_frame += dt
+                    t_add_frame_demo += dt
                     total_frames += 1
+
+                    if wandb_run is not None:
+                        window_t_sum += dt
+                        window_count += 1
+                        if window_count >= step_window:
+                            wandb.log({
+                                "step/add_frame_avg_s": window_t_sum / window_count,
+                                "step/add_frame_avg_ms": (window_t_sum / window_count) * 1000,
+                                "step/window_index": window_idx,
+                                "step/window_size": window_count,
+                                "step/global_frame": total_frames,
+                                "step/episode_index": total_episodes,
+                            })
+                            window_t_sum = 0.0
+                            window_count = 0
+                            window_idx += 1
 
                 t0 = time.time()
                 dataset.save_episode()
-                t_save_episode += time.time() - t0
+                t_save_episode_demo = time.time() - t0
+                t_save_episode += t_save_episode_demo
+
+                if wandb_run is not None:
+                    wandb.log({
+                        "episode_index": total_episodes,
+                        "source_file_size_mb": source_size_bytes / (1024 * 1024),
+                        "source_file_size_bytes": source_size_bytes,
+                        "num_frames": T,
+                        "time/hdf5_copy_s": t_copy_file,
+                        "time/hdf5_read_s": t_read_demo,
+                        "time/resize_s": t_resize_demo,
+                        "time/add_frame_s": t_add_frame_demo,
+                        "time/add_frame_per_frame_ms": (t_add_frame_demo / T * 1000) if T > 0 else 0,
+                        "time/save_episode_s": t_save_episode_demo,
+                        "shape/agent_before_T": agent_shape_before[0],
+                        "shape/agent_before_H": agent_shape_before[1],
+                        "shape/agent_before_W": agent_shape_before[2],
+                        "shape/agent_after_H": agent_shape_after[1],
+                        "shape/agent_after_W": agent_shape_after[2],
+                        "shape/wrist_before_H": wrist_shape_before[1],
+                        "shape/wrist_before_W": wrist_shape_before[2],
+                        "shape/wrist_after_H": wrist_shape_after[1],
+                        "shape/wrist_after_W": wrist_shape_after[2],
+                        "shape/agent_before_str": str(agent_shape_before),
+                        "shape/agent_after_str": str(agent_shape_after),
+                        "shape/wrist_before_str": str(wrist_shape_before),
+                        "shape/wrist_after_str": str(wrist_shape_after),
+                    })
 
                 episode_metadata.append({
                     "episode_index": total_episodes,
@@ -388,6 +486,27 @@ def main(args: Args):
     print(f"  add_frame:    {t_add_frame:.1f}s ({total_frames} frames)")
     print(f"  save_episode: {t_save_episode:.1f}s ({total_episodes} episodes)")
 
+    if wandb_run is not None and window_count > 0:
+        wandb.log({
+            "step/add_frame_avg_s": window_t_sum / window_count,
+            "step/add_frame_avg_ms": (window_t_sum / window_count) * 1000,
+            "step/window_index": window_idx,
+            "step/window_size": window_count,
+            "step/global_frame": total_frames,
+            "step/episode_index": total_episodes,
+        })
+
+    if wandb_run is not None:
+        wandb.summary["total/total_s"] = t_total
+        wandb.summary["total/hdf5_copy_s"] = t_copy
+        wandb.summary["total/hdf5_read_s"] = t_hdf5_read
+        wandb.summary["total/resize_s"] = t_resize
+        wandb.summary["total/add_frame_s"] = t_add_frame
+        wandb.summary["total/save_episode_s"] = t_save_episode
+        wandb.summary["total/total_frames"] = total_frames
+        wandb.summary["total/total_episodes"] = total_episodes
+        wandb.summary["total/skipped"] = skipped
+
     # Save episode metadata
     metadata_path = local_output_path / "episode_metadata.json"
     with open(metadata_path, "w") as f:
@@ -420,6 +539,9 @@ def main(args: Args):
             push_videos=True,
             license="apache-2.0",
         )
+
+    if wandb_run is not None:
+        wandb.finish()
 
 
 if __name__ == "__main__":

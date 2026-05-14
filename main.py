@@ -243,6 +243,21 @@ def augment_traj(x: torch.Tensor) -> torch.Tensor:
 
 
 
+def _per_sample_correct_labeled(r_a: torch.Tensor, r_b: torch.Tensor, labels: torch.Tensor):
+    """Per-sample correctness for open-axis (B,1) reward pairs.
+
+    Returns (correct: BoolTensor(B,), labeled: BoolTensor(B,)).
+    """
+    prob_a = torch.sigmoid(r_a - r_b).squeeze(-1)
+    lbl = labels.squeeze(-1)
+    is_a = lbl == 1.0
+    is_b = lbl == 0.0
+    pred_a_wins = prob_a > 0.5
+    correct = (pred_a_wins & is_a) | (~pred_a_wins & is_b)
+    labeled = is_a | is_b
+    return correct, labeled
+
+
 @torch.no_grad()
 def evaluate(model, val_loader, device, equal_weight, num_preferences, action_weight=0.0, regression=False):
     model.eval()
@@ -251,9 +266,12 @@ def evaluate(model, val_loader, device, equal_weight, num_preferences, action_we
     total_labeled = torch.zeros(num_preferences)
     n_batches = 0
     is_flow = isinstance(model, FlowRewardModel)
+    per_axis_correct: dict[str, int] = {}
+    per_axis_labeled: dict[str, int] = {}
 
     for batch in val_loader:
         labels = batch["labels"].to(device)
+        axis_labels = batch.get("axis_label")  # list[str] or None
 
         if is_flow:
             obs_a = make_obs(batch["traj_a"], device)
@@ -274,13 +292,20 @@ def evaluate(model, val_loader, device, equal_weight, num_preferences, action_we
             wr_b = batch["traj_b"]["wrist"].to(device)
             mask_a = batch["traj_a"]["padding_mask"].to(device)
             mask_b = batch["traj_b"]["padding_mask"].to(device)
-            axis_labels = batch.get("axis_label")  # list[str] or None
             r_a = model(tp_a, wr_a, mask_a, axis_labels=axis_labels) if isinstance(model, QwenRewardModel) else model(tp_a, wr_a, mask_a)
             r_b = model(tp_b, wr_b, mask_b, axis_labels=axis_labels) if isinstance(model, QwenRewardModel) else model(tp_b, wr_b, mask_b)
             if regression:
                 loss, per_dim_correct, per_dim_labeled = bradley_terry_loss_regression(r_a, r_b, labels)
             else:
                 loss, per_dim_correct, per_dim_labeled = bradley_terry_loss(r_a, r_b, labels, equal_weight)
+
+            if axis_labels is not None:
+                correct_b, labeled_b = _per_sample_correct_labeled(r_a, r_b, labels)
+                correct_b = correct_b.cpu().tolist()
+                labeled_b = labeled_b.cpu().tolist()
+                for ax, c, l in zip(axis_labels, correct_b, labeled_b):
+                    per_axis_correct[ax] = per_axis_correct.get(ax, 0) + int(c)
+                    per_axis_labeled[ax] = per_axis_labeled.get(ax, 0) + int(l)
 
         total_loss += loss.item()
         total_correct += per_dim_correct.cpu()
@@ -289,7 +314,11 @@ def evaluate(model, val_loader, device, equal_weight, num_preferences, action_we
 
     model.train()
     acc = (total_correct / total_labeled.clamp(min=1)).numpy()
-    return total_loss / max(n_batches, 1), acc
+    per_axis_acc = {
+        ax: (per_axis_correct[ax] / max(per_axis_labeled[ax], 1))
+        for ax in per_axis_correct
+    }
+    return total_loss / max(n_batches, 1), acc, per_axis_acc
 
 
 def main():
@@ -595,11 +624,17 @@ def main():
     global_step = 0
 
     # ---- pre-training baseline ----
-    val_loss, val_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
+    val_loss, val_acc, val_axis_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
     val_losses.append(val_loss)
     val_accs.append(val_acc.tolist())
     acc_str = " | ".join(f"{k}: {v:.2f}" for k, v in zip(preference_keys, val_acc))
     print(f"[Pre-train] Loss {val_loss:.4f} | {acc_str}")
+    if val_axis_acc:
+        ax_str = " | ".join(f"{k}: {v:.2f}" for k, v in sorted(val_axis_acc.items()))
+        print(f"[Pre-train per-axis] {ax_str}")
+
+    train_axis_correct: dict[str, int] = collections.defaultdict(int)
+    train_axis_labeled: dict[str, int] = collections.defaultdict(int)
 
     epoch_pbar = tqdm(range(args.epochs), desc="Epochs")
     for epoch in epoch_pbar:
@@ -655,6 +690,14 @@ def main():
                     loss, per_dim_correct, per_dim_labeled = bradley_terry_loss_regression(r_a, r_b, labels)
                 else:
                     loss, per_dim_correct, per_dim_labeled = bradley_terry_loss(r_a, r_b, labels, args.equal_weight)
+                if axis_labels is not None:
+                    with torch.no_grad():
+                        _c, _l = _per_sample_correct_labeled(r_a, r_b, labels)
+                    _c = _c.cpu().tolist()
+                    _l = _l.cpu().tolist()
+                    for ax, c, l in zip(axis_labels, _c, _l):
+                        train_axis_correct[ax] += int(c)
+                        train_axis_labeled[ax] += int(l)
             per_dim_acc = per_dim_correct / per_dim_labeled.clamp(min=1)
 
             # --- accumulate rewards into rolling buffer for correlation logging ---
@@ -731,6 +774,14 @@ def main():
                         "train/lr": scheduler.get_last_lr()[0],
                         **{f"train/acc_{k}": v for k, v in zip(preference_keys, per_dim_acc.cpu().numpy())},
                     }
+                    if train_axis_labeled:
+                        for ax in sorted(train_axis_correct):
+                            if train_axis_labeled[ax] > 0:
+                                log_dict[f"train/acc_axis/{ax}"] = (
+                                    train_axis_correct[ax] / train_axis_labeled[ax]
+                                )
+                        train_axis_correct.clear()
+                        train_axis_labeled.clear()
                     if args.ptp and isinstance(model, FlowRewardModel):
                         log_dict["train/action_loss"] = action_loss.item()
                     if anchor_entries:
@@ -747,7 +798,7 @@ def main():
 
             # ---- validation ----
             if global_step % args.eval_interval == 0:
-                val_loss, val_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
+                val_loss, val_acc, val_axis_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
                 val_losses.append(val_loss)
                 val_accs.append(val_acc.tolist())
                 mean_val_acc = val_acc.mean()
@@ -757,6 +808,14 @@ def main():
                 )
                 acc_str = " | ".join(f"{k}: {v:.2f}" for k, v in zip(preference_keys, val_acc))
                 print(f"  [Val] Step {global_step:5d} | Loss {val_loss:.4f} | Mean acc {mean_val_acc:.3f} | {acc_str}")
+                if val_axis_acc:
+                    ax_str = " | ".join(f"{k}: {v:.2f}" for k, v in sorted(val_axis_acc.items()))
+                    print(f"  [Val per-axis] {ax_str}")
+                    if use_wandb:
+                        wandb.log(
+                            {f"val/acc_axis/{ax}": v for ax, v in val_axis_acc.items()},
+                            step=global_step,
+                        )
                 plot_training_curves(
                     train_losses, train_accs, val_losses, val_accs,
                     out_path=os.path.join(args.out_dir, "training_curves.png"),
@@ -765,7 +824,7 @@ def main():
 
             # ---- visualization + wandb val logging ----
             if global_step % args.vis_interval == 0:
-                val_loss_vis, val_acc_vis = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
+                val_loss_vis, val_acc_vis, val_axis_acc_vis = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
                 mean_val_acc_vis = val_acc_vis.mean()
                 acc_str_vis = " | ".join(f"{k}: {v:.2f}" for k, v in zip(preference_keys, val_acc_vis))
                 print(f"  [Vis/Val] Step {global_step:5d} | Loss {val_loss_vis:.4f} | Mean acc {mean_val_acc_vis:.3f} | {acc_str_vis}")
@@ -808,6 +867,7 @@ def main():
                         "val/loss": val_loss_vis,
                         "val/acc_mean": float(mean_val_acc_vis),
                         **{f"val/acc_{k}": float(v) for k, v in zip(preference_keys, val_acc_vis)},
+                        **{f"val/acc_axis/{ax}": float(v) for ax, v in val_axis_acc_vis.items()},
                         **{f"val/video_{i}": wandb.Video(os.path.join(vis_step_dir, "val", f), format="mp4") for i, f in enumerate(val_mp4s)},
                         **{f"train/video_{i}": wandb.Video(os.path.join(vis_step_dir, "train", f), format="mp4") for i, f in enumerate(train_mp4s)},
                         **{f"top_bottom_train/{k}": wandb.Video(p, format="mp4") for k, p in zip(preference_keys, top_bottom_train_mp4s)},
@@ -829,10 +889,14 @@ def main():
                 print(f"  [Ckpt] Saved → {ckpt_path}")
 
     # ---- final eval + curves ----
-    val_loss, val_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
+    val_loss, val_acc, val_axis_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
     print("\nFinal validation:")
     for k, v in zip(preference_keys, val_acc):
         print(f"  {k}: {v:.3f}")
+    if val_axis_acc:
+        print("Final validation per-axis:")
+        for ax in sorted(val_axis_acc):
+            print(f"  {ax}: {val_axis_acc[ax]:.3f}")
 
     plot_training_curves(
         train_losses, train_accs, val_losses, val_accs,

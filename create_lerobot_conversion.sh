@@ -17,8 +17,8 @@ eval "$(/iris/u/marcelto/miniconda3/bin/conda shell.bash hook)"
 conda activate lerobot
 
 python convert_custom_droid_to_lerobot.py \
-    --args.scores_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi/2026-05-07_21-50-42_transformer_j15364912_250 \
-    --args.repo_name marcelto/setup_table_multi_standardized_1dp_250 \
+    --args.scores_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi/2026-05-13_21-15-17_transformer_j15426765_150 \
+    --args.repo_name marcelto/setup_table_multi_standardized_1dp_iter2_150 \
     --args.task_prompt "set up the table" \
     --args.score_type standardized \
     --args.decimal_places 1 
@@ -55,12 +55,12 @@ python convert_custom_droid_to_lerobot.py \
 #     --args.score-type standardized \
 #     --args.decimal-places 1                                                                                                                                                                                  
                                
-  python generate_episode_metadata.py \
-    --args.scores-dir  /iris/u/marcelto/reward_learning/infer_output/setup_table_multi/2026-05-07_21-50-42_transformer_j15364912_2100 \
-    --args.repo-name marcelto/setup_table_multi_standardized_1dp \
-    --args.task-prompt "set up the table" \
-    --args.score-type standardized \
-    --args.decimal-places 1
+  # python generate_episode_metadata.py \
+  #   --args.scores-dir  /iris/u/marcelto/reward_learning/infer_output/setup_table_multi/2026-05-07_21-50-42_transformer_j15364912_2100 \
+  #   --args.repo-name marcelto/setup_table_multi_standardized_1dp \
+  #   --args.task-prompt "set up the table" \
+  #   --args.score-type standardized \
+  #   --args.decimal-places 1
 
 # grep -rh '"source_hdf5"' /iris/u/marcelto/reward_learning/infer_output/fold_pants_multi/2026-05-07_22-42-32_transformer_j15366663_1400/ \
 # | sed 's/.*: "//;s/".*//' \
