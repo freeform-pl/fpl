@@ -7,6 +7,8 @@ Trajectories are represented as strided sequences of (third-person, wrist) frame
 
 import json
 import os
+import sys
+import time
 from pathlib import Path
 from typing import Optional, Union
 
@@ -29,37 +31,48 @@ def _resize_frames(frames: np.ndarray, img_size: tuple) -> np.ndarray:
     return np.stack([cv2.resize(f, img_size, interpolation=cv2.INTER_AREA) for f in frames])
 
 
-def _load_from_hdf5(hdf5_path: str, stride: int, seq_len: int, offset: int, img_size: tuple, action_chunk_size: int = 0) -> tuple:
+def _load_raw_hdf5(hdf5_path: str, action_chunk_size: int = 0) -> dict:
+    """Load all raw data from an HDF5 file once. Returns a dict with numpy arrays."""
     with h5py.File(hdf5_path, "r") as f:
         demo_key = next(iter(f["data"].keys()))
         obs = f[f"data/{demo_key}/obs"]
-        total = obs["agent_view"].shape[0]
-        indices = _strided_indices(total, stride, seq_len, offset)
-        tp = obs["agent_view"][indices]  # (T, H, W, 3) uint8
-        wr = obs["wrist"][indices]
-
-        proprio = obs["JOINT_POS"][indices].astype(np.float32)  # (T, 7)
-
-        action_chunks = None
+        raw = {
+            "agent_view": obs["agent_view"][:],   # (total, H, W, 3) uint8
+            "wrist": obs["wrist"][:],              # (total, H, W, 3) uint8
+            "proprio": obs["JOINT_POS"][:].astype(np.float32),  # (total, 7)
+        }
         if action_chunk_size > 0:
             acts_jp = f[f"data/{demo_key}/actions/joint_position"][:]  # (total, 7)
             acts_gr = f[f"data/{demo_key}/actions/gripper_position"][:]  # (total,) or (total, 1)
             if acts_gr.ndim == 1:
                 acts_gr = acts_gr[:, np.newaxis]
-            acts = np.concatenate([acts_jp, acts_gr], axis=-1).astype(np.float32)  # (total, 8)
-            action_dim = acts.shape[-1]
+            raw["actions"] = np.concatenate([acts_jp, acts_gr], axis=-1).astype(np.float32)  # (total, 8)
+    return raw
 
-            chunks = []
-            for idx in indices:
-                end = idx + action_chunk_size
-                if end <= total:
-                    chunk = acts[idx:end]
-                else:
-                    chunk = acts[idx:]
-                    pad_len = action_chunk_size - len(chunk)
-                    chunk = np.concatenate([chunk, np.zeros((pad_len, action_dim), dtype=chunk.dtype)], axis=0)
-                chunks.append(chunk)
-            action_chunks = np.stack(chunks)  # (n_real, action_chunk_size, action_dim)
+
+def _extract_trajectory(raw: dict, stride: int, seq_len: int, offset: int, img_size: tuple, action_chunk_size: int = 0) -> tuple:
+    """Extract a strided trajectory from pre-loaded raw data."""
+    total = raw["agent_view"].shape[0]
+    indices = _strided_indices(total, stride, seq_len, offset)
+    tp = raw["agent_view"][indices]
+    wr = raw["wrist"][indices]
+    proprio = raw["proprio"][indices]
+
+    action_chunks = None
+    if action_chunk_size > 0:
+        acts = raw["actions"]
+        action_dim = acts.shape[-1]
+        chunks = []
+        for idx in indices:
+            end = idx + action_chunk_size
+            if end <= total:
+                chunk = acts[idx:end]
+            else:
+                chunk = acts[idx:]
+                pad_len = action_chunk_size - len(chunk)
+                chunk = np.concatenate([chunk, np.zeros((pad_len, action_dim), dtype=chunk.dtype)], axis=0)
+            chunks.append(chunk)
+        action_chunks = np.stack(chunks)
 
     n_real = len(indices)
     if n_real < seq_len:
@@ -76,6 +89,11 @@ def _load_from_hdf5(hdf5_path: str, stride: int, seq_len: int, offset: int, img_
     tp = _resize_frames(tp, img_size)
     wr = _resize_frames(wr, img_size)
     return tp, wr, proprio, n_real, action_chunks
+
+
+def _load_from_hdf5(hdf5_path: str, stride: int, seq_len: int, offset: int, img_size: tuple, action_chunk_size: int = 0) -> tuple:
+    raw = _load_raw_hdf5(hdf5_path, action_chunk_size)
+    return _extract_trajectory(raw, stride, seq_len, offset, img_size, action_chunk_size)
 
 
 def load_trajectory(
@@ -113,6 +131,49 @@ def load_trajectory(
     if action_chunks is not None:
         result["action_chunks"] = torch.from_numpy(action_chunks)
     return result
+
+
+def _trajectories_from_raw(
+    raw: dict,
+    stride: int,
+    seq_len: int,
+    img_size: tuple,
+    offsets: list[int],
+    action_chunk_size: int = 0,
+) -> list[dict[str, torch.Tensor]]:
+    """Extract trajectory dicts for all offsets from pre-loaded raw data."""
+    results = []
+    for o in offsets:
+        tp, wr, proprio, n_real, action_chunks = _extract_trajectory(
+            raw, stride, seq_len, o, img_size, action_chunk_size
+        )
+        tp_t = torch.from_numpy(tp).permute(0, 3, 1, 2)
+        wr_t = torch.from_numpy(wr).permute(0, 3, 1, 2)
+        padding_mask = torch.zeros(seq_len, dtype=torch.bool)
+        padding_mask[n_real:] = True
+        result = {
+            "third_person": tp_t,
+            "wrist": wr_t,
+            "proprio": torch.from_numpy(proprio),
+            "padding_mask": padding_mask,
+        }
+        if action_chunks is not None:
+            result["action_chunks"] = torch.from_numpy(action_chunks)
+        results.append(result)
+    return results
+
+
+def load_trajectories_all_offsets(
+    hdf5_path: str,
+    stride: int,
+    seq_len: int,
+    img_size: tuple,
+    offsets: list[int],
+    action_chunk_size: int = 0,
+) -> list[dict[str, torch.Tensor]]:
+    """Load HDF5 once and return a trajectory dict for each offset."""
+    raw = _load_raw_hdf5(hdf5_path, action_chunk_size)
+    return _trajectories_from_raw(raw, stride, seq_len, img_size, offsets, action_chunk_size)
 
 
 def parse_preference_labels(preferences: dict, preference_keys: list) -> torch.Tensor:
@@ -158,6 +219,7 @@ class PreferenceDataset(Dataset):
         preload: bool = False,
         action_chunk_size: int = 0,
         preload_offsets: int = 5,
+        only_large: bool = False,
     ):
         self.stride = stride
         self.seq_len = seq_len
@@ -169,25 +231,51 @@ class PreferenceDataset(Dataset):
         self.preload_offsets = preload_offsets
 
         self.samples = []
-        for d in preference_dirs:
+        t_start = time.time()
+        n_skipped_large = 0
+
+        # When preloading, we load raw HDF5 data during validation (single read per file)
+        # and extract trajectories at the end, so each file is opened exactly once.
+        raw_cache = {} if preload else None
+        if preload:
+            n_off = preload_offsets if training else 1
+            offsets = [int(i * stride / n_off) for i in range(n_off)]
+
+        for di, d in enumerate(preference_dirs):
             pref_file = os.path.join(d, "preference.json")
             hdf5_a = os.path.join(d, "rollout_A.hdf5")
             hdf5_b = os.path.join(d, "rollout_B.hdf5")
 
+            if only_large:
+                hdf5_a = os.path.join(d, "rollout_A_large.hdf5")
+                hdf5_b = os.path.join(d, "rollout_B_large.hdf5")
+
             if not (os.path.exists(pref_file) and os.path.exists(hdf5_a) and os.path.exists(hdf5_b)):
+                if only_large:
+                    n_skipped_large += 1
                 continue
 
             try:
-                for path in (hdf5_a, hdf5_b):
-                    with h5py.File(path, "r") as f:
-                        demo_key = next(iter(f["data"].keys()))
-                        _ = f[f"data/{demo_key}/obs/agent_view"].shape
-                        _ = f[f"data/{demo_key}/obs/JOINT_POS"].shape
-                        if action_chunk_size > 0:
-                            _ = f[f"data/{demo_key}/actions/joint_position"].shape
-                            _ = f[f"data/{demo_key}/actions/gripper_position"].shape
+                if preload:
+                    # Load raw data (validates implicitly — will raise on corrupt files)
+                    for path in (hdf5_a, hdf5_b):
+                        if path not in raw_cache:
+                            t_file = time.time()
+                            raw_cache[path] = _load_raw_hdf5(path, action_chunk_size)
+                            print(f"    Loaded {os.path.basename(os.path.dirname(path))}/{os.path.basename(path)} "
+                                  f"in {time.time() - t_file:.2f}s", flush=True)
+                else:
+                    # Validate only — just check that required keys exist
+                    for path in (hdf5_a, hdf5_b):
+                        with h5py.File(path, "r") as f:
+                            demo_key = next(iter(f["data"].keys()))
+                            _ = f[f"data/{demo_key}/obs/agent_view"].shape
+                            _ = f[f"data/{demo_key}/obs/JOINT_POS"].shape
+                            if action_chunk_size > 0:
+                                _ = f[f"data/{demo_key}/actions/joint_position"].shape
+                                _ = f[f"data/{demo_key}/actions/gripper_position"].shape
             except (OSError, KeyError):
-                print(f"Skipping corrupted HDF5 in {d}")
+                print(f"Skipping corrupted HDF5 in {d}", flush=True)
                 continue
 
             with open(pref_file) as f:
@@ -195,7 +283,6 @@ class PreferenceDataset(Dataset):
 
             labels = parse_preference_labels(meta["preferences"], preference_keys)
             session = meta.get("session_timestamp", os.path.basename(d))
-
 
             succeeded_a = meta["rollout_A"].get("succeeded", None)
             succeeded_b = meta["rollout_B"].get("succeeded", None)
@@ -211,13 +298,33 @@ class PreferenceDataset(Dataset):
                 "succeeded_b": torch.tensor(1 if succeeded_b is True else (0 if succeeded_b is False else -1), dtype=torch.int8),
             })
 
+            log_every = 1 if preload else 20
+            if (di + 1) % log_every == 0 or di + 1 == len(preference_dirs):
+                print(f"  {'Loaded' if preload else 'Validated'} {di + 1}/{len(preference_dirs)} dirs "
+                      f"({len(self.samples)} valid, {len(raw_cache) if raw_cache is not None else 0} cached files) "
+                      f"[{time.time() - t_start:.1f}s]", flush=True)
+
+        print(f"{'Loading' if preload else 'Validation'} complete: {len(self.samples)} valid pairs "
+              f"from {len(preference_dirs)} dirs in {time.time() - t_start:.1f}s", flush=True)
+        if only_large and n_skipped_large > 0:
+            print(f"  (--only_large: skipped {n_skipped_large} dirs missing *_large.hdf5)", flush=True)
+
+        self.preload_time_s = 0.0
         if preload:
-            n_off = preload_offsets if training else 1
-            offsets = [int(i * stride / n_off) for i in range(n_off)]
-            print(f"Preloading {len(self.samples)} trajectory pairs × {n_off} offset(s) {offsets}...")
-            for s in self.samples:
-                s["trajs_a"] = [load_trajectory(s["hdf5_a"], stride, seq_len, img_size, o, action_chunk_size) for o in offsets]
-                s["trajs_b"] = [load_trajectory(s["hdf5_b"], stride, seq_len, img_size, o, action_chunk_size) for o in offsets]
+            print(f"Extracting {len(self.samples)} trajectory pairs × {n_off} offset(s) {offsets} "
+                  f"from {len(raw_cache)} cached files...", flush=True)
+            t_extract = time.time()
+            for si, s in enumerate(self.samples):
+                t0 = time.time()
+                s["trajs_a"] = _trajectories_from_raw(raw_cache[s["hdf5_a"]], stride, seq_len, img_size, offsets, action_chunk_size)
+                s["trajs_b"] = _trajectories_from_raw(raw_cache[s["hdf5_b"]], stride, seq_len, img_size, offsets, action_chunk_size)
+                if (si + 1) % 10 == 0 or si + 1 == len(self.samples):
+                    print(f"  Extracted {si + 1}/{len(self.samples)} pairs "
+                          f"[{time.time() - t_extract:.1f}s total, last={time.time() - t0:.2f}s]", flush=True)
+            del raw_cache
+            self.preload_time_s = time.time() - t_start
+            print(f"Total preload time: {self.preload_time_s:.1f}s "
+                  f"({self.preload_time_s / max(len(self.samples), 1):.2f}s/pair)", flush=True)
 
     def __len__(self):
         return len(self.samples)
@@ -286,6 +393,7 @@ def make_datasets(
     preload: bool = True,
     action_chunk_size: int = 0,
     preload_offsets: int = 5,
+    only_large: bool = False,
 ) -> tuple[PreferenceDataset, PreferenceDataset]:
     """
     Randomly assign val_fraction of preference sessions to validation and the
@@ -314,8 +422,8 @@ def make_datasets(
     print(f"Task: {task} | Keys: {preference_keys}")
     print(f"Train: {len(train_dirs)} sessions, Val: {len(val_dirs)} sessions")
 
-    train_ds = PreferenceDataset(train_dirs, preference_keys=preference_keys, stride=stride, seq_len=seq_len, img_size=img_size, training=True,  preload=preload, action_chunk_size=action_chunk_size, preload_offsets=preload_offsets)
-    val_ds   = PreferenceDataset(val_dirs,   preference_keys=preference_keys, stride=stride, seq_len=seq_len, img_size=img_size, training=False, preload=preload, action_chunk_size=action_chunk_size, preload_offsets=preload_offsets)
+    train_ds = PreferenceDataset(train_dirs, preference_keys=preference_keys, stride=stride, seq_len=seq_len, img_size=img_size, training=True,  preload=preload, action_chunk_size=action_chunk_size, preload_offsets=preload_offsets, only_large=only_large)
+    val_ds   = PreferenceDataset(val_dirs,   preference_keys=preference_keys, stride=stride, seq_len=seq_len, img_size=img_size, training=False, preload=preload, action_chunk_size=action_chunk_size, preload_offsets=preload_offsets, only_large=only_large)
     return train_ds, val_ds
 
 
@@ -505,3 +613,41 @@ def load_anchors(
 
     print(f"Loaded {len(entries)} anchor trajectories from {anchors_file}")
     return entries
+
+
+# ---------------------------------------------------------------------------
+# Open-axis wrapper (for qwen_open)
+# ---------------------------------------------------------------------------
+
+class OpenPreferenceDataset(Dataset):
+    """Wraps a PreferenceDataset, exploding K-axis samples into per-axis samples.
+
+    Each multi-axis sample (with K preference labels) becomes up to K single-axis
+    samples, each containing the axis name and a scalar preference label.
+    Axes with label 0.5 (equal/unlabeled) are skipped.
+    """
+
+    def __init__(self, base_dataset, preference_keys: list[str]):
+        self.base = base_dataset
+        self.preference_keys = preference_keys
+        self.items = []  # (base_idx, axis_idx, axis_name)
+        for i, sample in enumerate(base_dataset.samples):
+            labels = sample["labels"]
+            for k, key in enumerate(preference_keys):
+                self.items.append((i, k, key))
+
+    def __len__(self):
+        return len(self.items)
+
+    def __getitem__(self, idx):
+        base_idx, axis_idx, axis_name = self.items[idx]
+        sample = self.base[base_idx]
+        return {
+            "traj_a": sample["traj_a"],
+            "traj_b": sample["traj_b"],
+            "labels": sample["labels"][axis_idx:axis_idx + 1],  # (1,)
+            "axis_label": axis_name,
+            "succeeded_a": sample.get("succeeded_a", torch.tensor(0, dtype=torch.int8)),
+            "succeeded_b": sample.get("succeeded_b", torch.tensor(0, dtype=torch.int8)),
+            "session": sample.get("session", ""),
+        }

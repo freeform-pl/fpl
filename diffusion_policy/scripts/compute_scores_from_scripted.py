@@ -63,12 +63,24 @@ def main(rollout_data, demo_hdf5, output_dir, reward_axes):
 
     reward_names = []
     metric_cols = []
+    import re
     for ax in axes:
-        if ax not in available:
+        m = re.match(r'^composite\((.+)\)$', ax)
+        if m:
+            sub_axes = [s.strip() for s in m.group(1).split('+')]
+            vals = []
+            for sa in sub_axes:
+                if sa not in available:
+                    raise ValueError(f"Unknown reward axis '{sa}' in composite. Available: {list(available.keys())}")
+                vals.append(available[sa][1])
+            reward_names.append('composite(' + '+'.join(sub_axes) + ')')
+            metric_cols.append(sum(vals) / len(vals))
+        elif ax not in available:
             raise ValueError(f"Unknown reward axis '{ax}'. Available: {list(available.keys())}")
-        name, values = available[ax]
-        reward_names.append(name)
-        metric_cols.append(values)
+        else:
+            name, values = available[ax]
+            reward_names.append(name)
+            metric_cols.append(values)
     metrics = np.stack(metric_cols, axis=-1)
 
     print(f"Loaded {len(metrics)} rollouts")

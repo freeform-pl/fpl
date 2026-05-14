@@ -1,0 +1,11 @@
+{
+    "mid_range_experiment":{
+        "rhp_iter0": https://wandb.ai/memory_rl/slow_fast_medium_no_rollouts_mid_range_discrete_rhp/runs/8w7hm4id
+        "rhp_iter1": https://wandb.ai/memory_rl/slow_fast_medium_no_rollouts_mid_range_discrete_rhp/runs/9grn1503
+        "rhp_iter2":https://wandb.ai/memory_rl/slow_fast_medium_no_rollouts_mid_range_discrete_rhp/runs/ihj84r3e
+        "single pref (wrong objectif)": https://wandb.ai/memory_rl/slow_fast_medium_no_rollouts_mid_range_discrete_single_pref/runs/ler6yce2?nw=nwusermarcelto
+        "single pref":https://wandb.ai/memory_rl/slow_fast_medium_no_rollouts_mid_range_discrete_single_pref/runs/gtokf16z?nw=nwusermarcelto
+        "demo only": https://wandb.ai/memory_rl/slow_fast_medium_no_rollouts_mid_range_discrete_demo_only?nw=nwusermarcelto
+        "awr": https://wandb.ai/memory_rl/slow_fast_medium_no_rollouts_mid_range_discrete_awr/runs/y1y33azt?nw=nwusermarcelto
+    }
+}

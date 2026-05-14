@@ -7,7 +7,7 @@
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=dsuc_sf_mid
-#SBATCH --nodelist=iris7,iris8,iris10
+#SBATCH --nodelist=iris7,iris8,iris9,iris10
 #SBATCH --output slurm/%j.out
 
 # Demo-success baseline for slow/fast MEDIUM — no rollouts, 200 scripted demos, mid range, DISCRETE conditioning
@@ -33,5 +33,5 @@ export SHARED_DATA_DIR="shared_data_slow_fast_medium_no_rollouts_mid_range"
 export REWARD_AXES="speed_reward,peg_reward"
 export NUM_REWARD_DIMS=2
 
-export RESUME_FROM_PHASE=1
+export RESUME_FROM_PHASE=2
 bash scripts/run_pipeline_slow_fast.sh

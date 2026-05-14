@@ -208,15 +208,12 @@ class RewardModel(nn.Module):
 
 class DiscountedRewardModel(nn.Module):
     """
-    Scores each frame independently and sums with a discount factor gamma.
+    Scores each frame independently and sums over time.
 
     Architecture:
         1. FrameEncoder: (third_person, wrist) → embedding  (same as RewardModel)
-        2. Per-frame reward heads: embedding → K scalars in [0, 1]
-        3. Trajectory reward: sum_t( gamma^t * r_t )  (not normalised)
-
-    The discount weights are built once and cached; they resize automatically
-    if a longer sequence is seen at inference time.
+        2. Per-frame reward heads: embedding → K scalars
+        3. Trajectory reward: sum_t( r_t )
     """
 
     def __init__(
@@ -230,7 +227,6 @@ class DiscountedRewardModel(nn.Module):
         frozen_backbone: bool = False,
     ):
         super().__init__()
-        self.gamma = gamma
         self.reward_sigmoid = reward_sigmoid
 
         self.frame_encoder = FrameEncoder(embed_dim=embed_dim, backbone=backbone, frozen_backbone=frozen_backbone)
@@ -246,12 +242,6 @@ class DiscountedRewardModel(nn.Module):
             for _ in range(num_preferences)
         ])
 
-    def _discount_weights(self, T: int, device: torch.device) -> torch.Tensor:
-        """Return (T,) tensor of [gamma^(T-1), ..., gamma^1, gamma^0].
-        The last frame (t=T-1) gets weight 1, earlier frames are discounted."""
-        t = torch.arange(T - 1, -1, -1, dtype=torch.float32, device=device)
-        return self.gamma ** t
-
     def forward(self, third_person: torch.Tensor, wrist: torch.Tensor, padding_mask: torch.Tensor = None) -> torch.Tensor:
         """
         Args:
@@ -259,7 +249,7 @@ class DiscountedRewardModel(nn.Module):
             wrist:         (B, T, 3, H, W)
             padding_mask:  (B, T) bool — True = padded frame (excluded from sum)
         Returns:
-            rewards: (B, K)  — discounted sum of per-frame rewards
+            rewards: (B, K)  — sum of per-frame rewards
         """
         B, T = third_person.shape[:2]
 
@@ -275,13 +265,12 @@ class DiscountedRewardModel(nn.Module):
             dim=-1,
         )  # (B, T, K)
 
-        # Zero out padded frames before discounted sum
+        # Zero out padded frames before sum
         if padding_mask is not None:
             frame_rewards = frame_rewards.masked_fill(padding_mask.unsqueeze(-1), 0.0)
 
-        # Discounted sum over time: (B, K)
-        weights = self._discount_weights(T, third_person.device)  # (T,)
-        rewards = (frame_rewards * weights.unsqueeze(0).unsqueeze(-1)).sum(dim=1)  # (B, K)
+        # Sum over time: (B, K)
+        rewards = frame_rewards.sum(dim=1)  # (B, K)
 
         if self.reward_sigmoid:
             rewards = torch.sigmoid(rewards)
@@ -358,8 +347,8 @@ def bradley_terry_loss(
         )
         n += is_b.sum()
 
-    if is_eq.any() and equal_weight > 0:
-        loss = loss + equal_weight * F.binary_cross_entropy(
+    if is_eq.any():
+        loss = loss + F.binary_cross_entropy(
             prob_a[is_eq], 0.5 * torch.ones_like(prob_a[is_eq]), reduction="sum"
         )
         n += is_eq.sum()

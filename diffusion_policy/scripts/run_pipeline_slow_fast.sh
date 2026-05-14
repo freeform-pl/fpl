@@ -182,13 +182,18 @@ if [ "${SKIP_REWARD_MODEL}" = "true" ]; then
     echo "=== Phase 3: SKIPPED (not needed for this baseline) ==="
 elif [ ${RESUME_FROM_PHASE} -le 3 ]; then
     echo "=== Phase 3: Training reward model ==="
+    N_PAIRS_FLAG=""
+    if [ -n "${N_PAIRS:-}" ]; then
+        N_PAIRS_FLAG="--n_pairs ${N_PAIRS}"
+    fi
     python reward_model/train_reward_model.py \
         --rollout_data "${ROLLOUT_PATH}" \
         --demo_hdf5 "${SCRIPTED_HDF5}" \
         --output_dir "${REWARD_DIR}" \
         --epochs ${REWARD_EPOCHS} \
         --wandb_project "${WANDB_PROJECT}" \
-        --reward_axes "${REWARD_AXES}"
+        --reward_axes "${REWARD_AXES}" \
+        ${N_PAIRS_FLAG}
 else
     echo "=== Phase 3: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
 fi
@@ -328,7 +333,8 @@ if [ ${N_ITERATIONS} -gt 0 ]; then
             --output_dir "${ITER_REWARD_DIR}" \
             --epochs ${REWARD_EPOCHS} \
             --wandb_project "${WANDB_PROJECT}" \
-            --reward_axes "${REWARD_AXES}"
+            --reward_axes "${REWARD_AXES}" \
+            ${N_PAIRS_FLAG}
         SCORES_PATH="${ITER_REWARD_DIR}/scores.json"
 
         # --- Step C: Retrain conditioned policy ---

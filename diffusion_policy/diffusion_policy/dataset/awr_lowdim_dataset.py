@@ -69,37 +69,40 @@ class AWRLowdimDataset(BaseLowdimDataset):
         replay_buffer = ReplayBuffer.create_empty_numpy()
         episode_weights = []
 
-        # Load rollout data
-        data = np.load(rollout_data_path)
-        rollout_obs = data['obs']  # (N, T, D)
-        rollout_actions = data['actions']  # (N, T, Da)
-        rollout_lengths = data['episode_lengths']  # (N,)
+        # Load rollout data (skip if path is "none")
+        has_rollouts = rollout_data_path and rollout_data_path.strip() != 'none'
+        rollout_action_dim = None
+        if has_rollouts:
+            data = np.load(rollout_data_path)
+            rollout_obs = data['obs']  # (N, T, D)
+            rollout_actions = data['actions']  # (N, T, Da)
+            rollout_lengths = data['episode_lengths']  # (N,)
+            rollout_action_dim = rollout_actions.shape[-1]
 
-        for i in tqdm(range(len(rollout_obs)), desc="Loading rollout episodes"):
-            L_obs = int(rollout_lengths[i])
-            L_act = min(L_obs - 1, rollout_actions.shape[1])
-            if L_act <= 0:
-                continue
+            for i in tqdm(range(len(rollout_obs)), desc="Loading rollout episodes"):
+                L_obs = int(rollout_lengths[i])
+                L_act = min(L_obs - 1, rollout_actions.shape[1])
+                if L_act <= 0:
+                    continue
 
-            obs_i = rollout_obs[i, :L_obs].astype(np.float32)
-            act_i = rollout_actions[i, :L_act].astype(np.float32)
+                obs_i = rollout_obs[i, :L_obs].astype(np.float32)
+                act_i = rollout_actions[i, :L_act].astype(np.float32)
 
-            L = min(len(obs_i), L_act)
+                L = min(len(obs_i), L_act)
 
-            avg_score = float(np.mean(rollout_z[i]))
-            episode_weights.append(avg_score)
-            w = np.exp(beta * avg_score)
-            weight_i = np.full((L, 1), w, dtype=np.float32)
+                avg_score = float(np.mean(rollout_z[i]))
+                episode_weights.append(avg_score)
+                w = np.exp(beta * avg_score)
+                weight_i = np.full((L, 1), w, dtype=np.float32)
 
-            episode = {
-                'obs': obs_i[:L],
-                'action': act_i[:L],
-                'weight': weight_i,
-            }
-            replay_buffer.add_episode(episode)
+                episode = {
+                    'obs': obs_i[:L],
+                    'action': act_i[:L],
+                    'weight': weight_i,
+                }
+                replay_buffer.add_episode(episode)
 
         # Load original demo data
-        rollout_action_dim = rollout_actions.shape[-1]
         rotation_transformer = RotationTransformer(
             from_rep='axis_angle', to_rep='rotation_6d')
 
@@ -113,7 +116,7 @@ class AWRLowdimDataset(BaseLowdimDataset):
                 act_i = demo['actions'][:].astype(np.float32)
 
                 # Convert actions if dim mismatch (7D axis_angle -> 10D rot6d)
-                if act_i.shape[-1] != rollout_action_dim and act_i.shape[-1] == 7:
+                if act_i.shape[-1] == 7 and (rollout_action_dim is None or act_i.shape[-1] != rollout_action_dim):
                     pos = act_i[:, :3]
                     rot = act_i[:, 3:6]
                     gripper = act_i[:, 6:]

@@ -40,14 +40,16 @@ from state_reward_model import StateRewardModel, bradley_terry_loss
 class PreferencePairDataset(Dataset):
     """Generate preference pairs from rollout metrics."""
 
-    def __init__(self, obs, episode_lengths, metrics, max_seq_len=512, n_pairs=10000, seed=42):
+    def __init__(self, obs, episode_lengths, metrics, max_seq_len=512, n_pairs=None, seed=42):
         """
         Args:
             obs: (N, T, D) padded observations
             episode_lengths: (N,) actual lengths
             metrics: (N, K) ground truth metric values per episode
             max_seq_len: truncate sequences to this length
-            n_pairs: number of preference pairs to generate
+            n_pairs: number of preference pairs to generate.
+                     None (default) = all unique pairs N*(N-1)/2.
+                     An integer = randomly sample that many pairs.
         """
         self.obs = obs
         self.episode_lengths = episode_lengths
@@ -58,17 +60,37 @@ class PreferencePairDataset(Dataset):
         N = len(obs)
         K = metrics.shape[1]
 
-        # Generate random pairs
-        idx_a = rng.randint(0, N, size=n_pairs)
-        idx_b = rng.randint(0, N, size=n_pairs)
-        # Ensure different episodes
-        mask = idx_a == idx_b
-        idx_b[mask] = (idx_b[mask] + 1) % N
+        if n_pairs is None:
+            # Generate all unique pairs (i, j) with i < j
+            from itertools import combinations
+            all_pairs = list(combinations(range(N), 2))
+            idx_a = np.array([p[0] for p in all_pairs])
+            idx_b = np.array([p[1] for p in all_pairs])
+            n_pairs = len(all_pairs)
+        else:
+            # Randomly sample n_pairs pairs
+            all_unique = N * (N - 1) // 2
+            if n_pairs >= all_unique:
+                # If requesting more than all unique pairs, just use all
+                from itertools import combinations
+                all_pairs = list(combinations(range(N), 2))
+                idx_a = np.array([p[0] for p in all_pairs])
+                idx_b = np.array([p[1] for p in all_pairs])
+                n_pairs = len(all_pairs)
+            else:
+                idx_a = rng.randint(0, N, size=n_pairs)
+                idx_b = rng.randint(0, N, size=n_pairs)
+                # Ensure different episodes
+                mask = idx_a == idx_b
+                idx_b[mask] = (idx_b[mask] + 1) % N
 
-        # Labels: 1.0 if A is preferred (higher metric), 0.0 if B is preferred
-        labels = np.zeros((n_pairs, K), dtype=np.float32)
+        # Labels: 1.0 if A preferred, 0.0 if B preferred, 0.5 if equal
+        labels = np.full((n_pairs, K), 0.5, dtype=np.float32)
         for k in range(K):
-            labels[:, k] = (metrics[idx_a, k] > metrics[idx_b, k]).astype(np.float32)
+            labels[:, k] = np.where(
+                metrics[idx_a, k] > metrics[idx_b, k], 1.0,
+                np.where(metrics[idx_a, k] < metrics[idx_b, k], 0.0, 0.5)
+            )
 
         self.idx_a = idx_a
         self.idx_b = idx_b
@@ -127,7 +149,7 @@ def load_demo_obs(demo_hdf5, obs_keys, max_demos=None):
 @click.option('--epochs', default=100, type=int)
 @click.option('--batch_size', default=64, type=int)
 @click.option('--lr', default=1e-4, type=float)
-@click.option('--n_pairs', default=20000, type=int)
+@click.option('--n_pairs', default=None, type=int, help='Number of preference pairs. Default: all unique pairs N*(N-1)/2')
 @click.option('--max_seq_len', default=512, type=int)
 @click.option('--max_demos', default=None, type=int, help='Max original demos to include')
 @click.option('--device', default='cuda:0')
@@ -150,7 +172,7 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
             'epochs': epochs,
             'batch_size': batch_size,
             'lr': lr,
-            'n_pairs': n_pairs,
+            'n_pairs': n_pairs if n_pairs is not None else 'all',
             'max_seq_len': max_seq_len,
         },
     )
@@ -301,8 +323,6 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
     }
     if all_peg is not None:
         available['peg_reward'] = ('peg', all_peg)
-    available['composite'] = ('composite', (all_success + all_speed + all_smoothness) / 3)
-
     # Select axes
     if reward_axes is not None:
         axes = [a.strip() for a in reward_axes.split(',')]
@@ -315,11 +335,24 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
     reward_names = []
     metric_cols = []
     for ax in axes:
-        if ax not in available:
+        # Support composite(ax1+ax2+...) syntax for averaging multiple axes
+        import re
+        m = re.match(r'^composite\((.+)\)$', ax)
+        if m:
+            sub_axes = [s.strip() for s in m.group(1).split('+')]
+            vals = []
+            for sa in sub_axes:
+                if sa not in available:
+                    raise ValueError(f"Unknown reward axis '{sa}' in composite. Available: {list(available.keys())}")
+                vals.append(available[sa][1])
+            reward_names.append('composite(' + '+'.join(sub_axes) + ')')
+            metric_cols.append(sum(vals) / len(vals))
+        elif ax not in available:
             raise ValueError(f"Unknown reward axis '{ax}'. Available: {list(available.keys())}")
-        name, values = available[ax]
-        reward_names.append(name)
-        metric_cols.append(values)
+        else:
+            name, values = available[ax]
+            reward_names.append(name)
+            metric_cols.append(values)
     metrics = np.stack(metric_cols, axis=-1)  # (N_rollouts + N_demos, K)
 
     num_rewards = metrics.shape[1]
@@ -344,8 +377,16 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
 
     # Create train/val datasets (preferences across rollouts AND demos)
     val_ratio = 0.1
-    n_val_pairs = max(int(n_pairs * val_ratio), 100)
-    n_train_pairs = n_pairs - n_val_pairs
+    N_total = len(all_obs)
+    all_unique_pairs = N_total * (N_total - 1) // 2
+    effective_n_pairs = n_pairs if n_pairs is not None else all_unique_pairs
+    n_val_pairs = max(int(effective_n_pairs * val_ratio), min(100, effective_n_pairs))
+    # Ensure we don't allocate all pairs to validation
+    n_val_pairs = min(n_val_pairs, int(effective_n_pairs * 0.5))
+    n_val_pairs = max(n_val_pairs, 1)
+    n_train_pairs = effective_n_pairs - n_val_pairs
+    print(f"  Preference pairs: {effective_n_pairs} total ({n_train_pairs} train, {n_val_pairs} val)"
+          + (f" [all unique pairs]" if n_pairs is None else f" [specified]"))
 
     train_dataset = PreferencePairDataset(
         all_obs, all_lengths, metrics,

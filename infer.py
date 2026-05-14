@@ -33,6 +33,7 @@ import torch
 from dataset import load_trajectory
 from model import RewardModel, DiscountedRewardModel
 from flow_model import RewardModel as FlowRewardModel
+from qwen_model import QwenRewardModel
 from tasks import TASKS
 from analyze import RewardData, plot_scatter_matrix, plot_dim_histograms
 
@@ -482,6 +483,16 @@ def main():
             embed_dim=args.embed_dim,
             gamma=saved_args.get("gamma", 0.99),
         ).to(device)
+    elif model_type in ("qwen", "qwen_lora"):
+        model = QwenRewardModel(
+            num_preferences=len(args.preference_keys),
+            model_name=saved_args.get("qwen_model_name", "Qwen/Qwen3-VL-4B-Instruct"),
+            use_lora=(model_type == "qwen_lora"),
+            lora_r=saved_args.get("lora_r", 64),
+            lora_alpha=saved_args.get("lora_alpha", 16),
+            reward_sigmoid=saved_args.get("reward_sigmoid", False),
+            gradient_checkpointing=False,  # not needed at inference
+        ).to(device)
     else:
         model = RewardModel(
             num_preferences=len(args.preference_keys),
@@ -492,7 +503,10 @@ def main():
             dropout=saved_args.get("dropout", 0.1),
             backbone=saved_args.get("backbone", "resnet18"),
         ).to(device)
-    model.load_state_dict(ckpt["model"])
+    if isinstance(model, QwenRewardModel):
+        model.load_checkpoint_state_dict(ckpt["model"])
+    else:
+        model.load_state_dict(ckpt["model"])
     model.eval()
 
     ckpt_name = os.path.splitext(os.path.basename(args.ckpt))[0]

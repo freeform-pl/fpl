@@ -369,6 +369,22 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
                 self.global_step += 1
                 self.epoch += 1
 
+        # Upload best checkpoint to wandb as artifact
+        if topk_manager.path_value_map:
+            if topk_manager.mode == 'max':
+                best_path = max(topk_manager.path_value_map, key=topk_manager.path_value_map.get)
+            else:
+                best_path = min(topk_manager.path_value_map, key=topk_manager.path_value_map.get)
+            if os.path.exists(best_path):
+                artifact = wandb.Artifact(
+                    name=f"best-checkpoint-{wandb_run.id}",
+                    type="model",
+                    metadata={"score": topk_manager.path_value_map[best_path]}
+                )
+                artifact.add_file(best_path)
+                wandb_run.log_artifact(artifact)
+                print(f"Uploaded best checkpoint to wandb: {best_path}")
+
 @hydra.main(
     version_base=None,
     config_path=str(pathlib.Path(__file__).parent.parent.joinpath("config")),

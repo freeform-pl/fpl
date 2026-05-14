@@ -26,9 +26,10 @@ import wandb
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from dataset import make_datasets, print_dataset_stats, load_anchors, load_cross_preferences
+from dataset import make_datasets, print_dataset_stats, load_anchors, load_cross_preferences, OpenPreferenceDataset
 from model import RewardModel, DiscountedRewardModel, bradley_terry_loss, bradley_terry_loss_regression, anchor_loss
 from flow_model import RewardModel as FlowRewardModel
+from qwen_model import QwenRewardModel
 from tasks import TASKS
 from visualization import visualize_validation_batch, visualize_top_bottom_trajectories, plot_training_curves, plot_reward_correlation
 
@@ -51,10 +52,16 @@ def parse_args():
                    help="Preload all data into RAM at startup")
     p.add_argument("--preload_offsets", type=int, default=5,
                    help="Number of temporal offsets to preload per trajectory pair (only used with --preload)")
+    p.add_argument("--only_large", action="store_true",
+                   help="Only use *_large.hdf5 files (skip pairs where the large variant doesn't exist)")
 
     # Model
-    p.add_argument("--model", default="transformer", choices=["transformer", "discounted", "flow"],
-                   help="Model architecture: transformer, discounted, or flow (flow matching)")
+    p.add_argument("--model", default="transformer", choices=[
+                       "transformer", "discounted", "flow",
+                       "qwen", "qwen_lora", "qwen_open",
+                       "qwen_discounted", "qwen_open_discounted",
+                   ],
+                   help="Model architecture")
     p.add_argument("--embed_dim", type=int, default=256)
     p.add_argument("--num_heads", type=int, default=8)
     p.add_argument("--num_layers", type=int, default=4)
@@ -80,13 +87,29 @@ def parse_args():
     p.add_argument("--action_weight", type=float, default=1.0,
                    help="Weight for PTP action loss relative to BT loss")
 
+    # Qwen-specific (following QwenLM/Qwen3-VL finetuning approach)
+    p.add_argument("--lora_r", type=int, default=64,
+                   help="LoRA rank (--model qwen_lora)")
+    p.add_argument("--lora_alpha", type=int, default=16,
+                   help="LoRA alpha scaling factor (--model qwen_lora)")
+    p.add_argument("--qwen_model_name", type=str, default="Qwen/Qwen3-VL-4B-Instruct",
+                   help="HuggingFace model identifier (--model qwen/qwen_lora)")
+    p.add_argument("--tune_vision", action="store_true",
+                   help="Unfreeze vision encoder (default: frozen, following QwenLM approach)")
+    p.add_argument("--tune_mlp", action="store_true", default=True,
+                   help="Train MLP projector (default: True)")
+    p.add_argument("--no_tune_mlp", action="store_false", dest="tune_mlp",
+                   help="Freeze MLP projector")
+    p.add_argument("--no_gradient_checkpointing", action="store_true",
+                   help="Disable gradient checkpointing for Qwen model")
+
     # Training
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--weight_decay", type=float, default=1e-4)
     p.add_argument("--batch_size", type=int, default=4)
     p.add_argument("--epochs", type=int, default=100)
-    p.add_argument("--equal_weight", type=float, default=0.0,
-                   help="Loss weight for Equal-labeled samples (0 = skip)")
+    p.add_argument("--equal_weight", type=float, default=1.0,
+                   help="Loss weight for Equal-labeled samples")
     p.add_argument("--regression", action="store_true",
                    help="Use MSE regression to 0/1 targets instead of Bradley-Terry cross-entropy (non-flow models)")
     p.add_argument("--anchor", action="store_true",
@@ -251,8 +274,9 @@ def evaluate(model, val_loader, device, equal_weight, num_preferences, action_we
             wr_b = batch["traj_b"]["wrist"].to(device)
             mask_a = batch["traj_a"]["padding_mask"].to(device)
             mask_b = batch["traj_b"]["padding_mask"].to(device)
-            r_a = model(tp_a, wr_a, mask_a)
-            r_b = model(tp_b, wr_b, mask_b)
+            axis_labels = batch.get("axis_label")  # list[str] or None
+            r_a = model(tp_a, wr_a, mask_a, axis_labels=axis_labels) if isinstance(model, QwenRewardModel) else model(tp_a, wr_a, mask_a)
+            r_b = model(tp_b, wr_b, mask_b, axis_labels=axis_labels) if isinstance(model, QwenRewardModel) else model(tp_b, wr_b, mask_b)
             if regression:
                 loss, per_dim_correct, per_dim_labeled = bradley_terry_loss_regression(r_a, r_b, labels)
             else:
@@ -298,7 +322,7 @@ def main():
         json.dump(vars(args), f, indent=2)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
+    print(f"Device: {device}", flush=True)
 
     # ------------------------------------------------------------------ #
     # Wandb
@@ -328,6 +352,7 @@ def main():
         preload=args.preload,
         action_chunk_size=args.action_chunk_size if args.ptp else 0,
         preload_offsets=args.preload_offsets,
+        only_large=args.only_large,
     )
 
     print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}")
@@ -354,23 +379,47 @@ def main():
                     action_chunk_size=args.action_chunk_size if args.ptp else 0,
                 ))
             if args.preload and cross_samples:
-                from dataset import load_trajectory
+                from dataset import _load_raw_hdf5, _trajectories_from_raw
                 n_off = args.preload_offsets
                 offsets = [int(i * args.stride / n_off) for i in range(n_off)]
                 ac = args.action_chunk_size if args.ptp else 0
                 img = (args.img_size, args.img_size)
                 print(f"[cross_preferences] Preloading {len(cross_samples)} cross-preference pairs "
-                      f"× {n_off} offset(s)...")
+                      f"× {n_off} offset(s)...", flush=True)
                 failed = []
-                for si, s in enumerate(cross_samples):
+                t_cross_start = time.time()
+                # Load each unique HDF5 file once
+                raw_cache = {}
+                all_paths = set()
+                for s in cross_samples:
+                    all_paths.add(s["hdf5_a"])
+                    all_paths.add(s["hdf5_b"])
+                for pi, path in enumerate(all_paths):
                     try:
-                        s["trajs_a"] = [load_trajectory(s["hdf5_a"], args.stride, args.seq_len, img, o, ac)
-                                        for o in offsets]
-                        s["trajs_b"] = [load_trajectory(s["hdf5_b"], args.stride, args.seq_len, img, o, ac)
-                                        for o in offsets]
+                        raw_cache[path] = _load_raw_hdf5(path, ac)
                     except (OSError, KeyError) as e:
-                        print(f"[cross_preferences] Skipping corrupted HDF5: {e}")
+                        print(f"[cross_preferences] Skipping corrupted HDF5: {path}: {e}", flush=True)
+                    if (pi + 1) % 20 == 0 or pi + 1 == len(all_paths):
+                        print(f"  [cross] Loaded {pi + 1}/{len(all_paths)} unique files "
+                              f"[{time.time() - t_cross_start:.1f}s]", flush=True)
+                # Extract offset trajectories from cached raw data
+                for si, s in enumerate(cross_samples):
+                    if s["hdf5_a"] not in raw_cache or s["hdf5_b"] not in raw_cache:
                         failed.append(si)
+                        continue
+                    try:
+                        s["trajs_a"] = _trajectories_from_raw(raw_cache[s["hdf5_a"]], args.stride, args.seq_len, img, offsets, ac)
+                        s["trajs_b"] = _trajectories_from_raw(raw_cache[s["hdf5_b"]], args.stride, args.seq_len, img, offsets, ac)
+                    except (OSError, KeyError) as e:
+                        print(f"[cross_preferences] Error extracting trajectories: {e}", flush=True)
+                        failed.append(si)
+                    if (si + 1) % 10 == 0 or si + 1 == len(cross_samples):
+                        print(f"  [cross] Extracted {si + 1}/{len(cross_samples)} pairs "
+                              f"[{time.time() - t_cross_start:.1f}s]", flush=True)
+                del raw_cache
+                cross_preload_time = time.time() - t_cross_start
+                print(f"[cross_preferences] Total preload time: {cross_preload_time:.1f}s "
+                      f"({cross_preload_time / max(len(cross_samples), 1):.2f}s/pair)", flush=True)
                 for si in reversed(failed):
                     cross_samples.pop(si)
         if cross_samples:
@@ -398,6 +447,24 @@ def main():
     print(f"Total train pairs: {len(train_ds.samples)}  "
           f"({len(train_ds.samples) * 2} trajectory slots, {len(all_paths)} unique trajectories)")
 
+    # Log preload times to wandb
+    if use_wandb and args.preload:
+        preload_log = {
+            "preload/train_time_s": train_ds.preload_time_s,
+            "preload/val_time_s": val_ds.preload_time_s,
+            "preload/train_pairs": len(train_ds),
+            "preload/val_pairs": len(val_ds),
+        }
+        cross_preload_time = locals().get("cross_preload_time", 0.0)
+        if cross_preload_time > 0:
+            preload_log["preload/cross_time_s"] = cross_preload_time
+            preload_log["preload/cross_pairs"] = len(cross_samples)
+        preload_log["preload/total_time_s"] = (
+            train_ds.preload_time_s + val_ds.preload_time_s
+            + preload_log.get("preload/cross_time_s", 0.0)
+        )
+        wandb.log(preload_log)
+
     anchor_entries = []
     if args.anchor:
         if not args.anchors_file:
@@ -410,6 +477,13 @@ def main():
             img_size=(args.img_size, args.img_size),
             action_chunk_size=args.action_chunk_size if args.ptp else 0,
         )
+
+    # Wrap datasets for qwen_open (per-axis samples)
+    if args.model in ("qwen_open", "qwen_open_discounted"):
+        train_ds = OpenPreferenceDataset(train_ds, preference_keys)
+        val_ds = OpenPreferenceDataset(val_ds, preference_keys)
+        print(f"[{args.model}] Expanded to {len(train_ds)} train / {len(val_ds)} val per-axis samples")
+        preference_keys = ["overall"]
 
     train_loader = DataLoader(
         train_ds,
@@ -454,6 +528,23 @@ def main():
             reward_sigmoid=args.reward_sigmoid,
             frozen_backbone=args.freeze_backbone,
         ).to(device)
+    elif args.model in ("qwen", "qwen_lora", "qwen_open", "qwen_discounted", "qwen_open_discounted"):
+        model = QwenRewardModel(
+            num_preferences=len(preference_keys),  # 1 for open variants
+            model_name=args.qwen_model_name,
+            use_lora=(args.model == "qwen_lora"),
+            lora_r=args.lora_r,
+            lora_alpha=args.lora_alpha,
+            reward_sigmoid=args.reward_sigmoid,
+            tune_vision=args.tune_vision,
+            tune_mlp=args.tune_mlp,
+            tune_llm=True,
+            gradient_checkpointing=not args.no_gradient_checkpointing,
+            discounted=args.model in ("qwen_discounted", "qwen_open_discounted"),
+        )
+        print("Moving model to device...", flush=True)
+        model = model.to(device)
+        print("Model on device.", flush=True)
     else:
         model = RewardModel(
             num_preferences=len(preference_keys),
@@ -471,13 +562,17 @@ def main():
     print(f"Model parameters: {n_params:,}")
 
     # Separate backbone params for optional lower lr
-    backbone_params = list(model.frame_encoder.backbone.parameters())
-    backbone_ids = {id(p) for p in backbone_params}
-    other_params = [p for p in model.parameters() if id(p) not in backbone_ids]
-    param_groups = [
-        {"params": other_params, "lr": args.lr},
-        {"params": backbone_params, "lr": args.lr * args.backbone_lr_scale},
-    ]
+    if args.model in ("qwen", "qwen_lora", "qwen_open", "qwen_discounted", "qwen_open_discounted"):
+        trainable_params = [p for p in model.parameters() if p.requires_grad]
+        param_groups = [{"params": trainable_params, "lr": args.lr}]
+    else:
+        backbone_params = list(model.frame_encoder.backbone.parameters())
+        backbone_ids = {id(p) for p in backbone_params}
+        other_params = [p for p in model.parameters() if id(p) not in backbone_ids]
+        param_groups = [
+            {"params": other_params, "lr": args.lr},
+            {"params": backbone_params, "lr": args.lr * args.backbone_lr_scale},
+        ]
     optimizer = torch.optim.AdamW(
         param_groups, weight_decay=args.weight_decay
     )
@@ -547,8 +642,13 @@ def main():
                 mask_b = batch["traj_b"]["padding_mask"].to(device)
                 t_transfer = time.perf_counter() - t0
                 t0 = time.perf_counter()
-                r_a = model(tp_a, wr_a, mask_a)
-                r_b = model(tp_b, wr_b, mask_b)
+                axis_labels = batch.get("axis_label")  # list[str] or None
+                if isinstance(model, QwenRewardModel):
+                    r_a = model(tp_a, wr_a, mask_a, axis_labels=axis_labels)
+                    r_b = model(tp_b, wr_b, mask_b, axis_labels=axis_labels)
+                else:
+                    r_a = model(tp_a, wr_a, mask_a)
+                    r_b = model(tp_b, wr_b, mask_b)
                 t_forward = time.perf_counter() - t0
                 t0 = time.perf_counter()
                 if args.regression:
@@ -612,14 +712,18 @@ def main():
                     f"Loss {loss.item():.4f} | Acc {mean_acc:.3f} | "
                     f"LR {scheduler.get_last_lr()[0]:.2e} | "
                     f"data={t_data:.2f}s  transfer={t_transfer:.2f}s  fwd={t_forward:.2f}s  bwd={t_backward:.2f}s"
+                    + (f"  pil={model._last_prep_time:.2f}s" if hasattr(model, "_last_prep_time") else "")
                 )
                 if use_wandb:
-                    wandb.log({
+                    timing_dict = {
                         "timing/data_loading": t_data,
                         "timing/gpu_transfer": t_transfer,
                         "timing/forward": t_forward,
                         "timing/backward": t_backward,
-                    }, step=global_step)
+                    }
+                    if hasattr(model, "_last_prep_time"):
+                        timing_dict["timing/pil_processor"] = model._last_prep_time
+                    wandb.log(timing_dict, step=global_step)
                 if use_wandb:
                     log_dict = {
                         "train/loss": loss.item(),
@@ -715,9 +819,10 @@ def main():
             # ---- checkpoint ----
             if global_step % args.save_interval == 0:
                 ckpt_path = os.path.join(ckpt_dir, f"step{global_step:06d}.pt")
+                model_sd = model.get_checkpoint_state_dict() if isinstance(model, QwenRewardModel) else model.state_dict()
                 torch.save({
                     "step": global_step,
-                    "model": model.state_dict(),
+                    "model": model_sd,
                     "optimizer": optimizer.state_dict(),
                     "args": vars(args),
                 }, ckpt_path)
@@ -752,9 +857,10 @@ def main():
     )
 
     # Final checkpoint
+    model_sd = model.get_checkpoint_state_dict() if isinstance(model, QwenRewardModel) else model.state_dict()
     torch.save({
         "step": global_step,
-        "model": model.state_dict(),
+        "model": model_sd,
         "optimizer": optimizer.state_dict(),
         "args": vars(args),
     }, os.path.join(ckpt_dir, "final.pt"))

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=iris
-#SBATCH --partition=iris
+#SBATCH --partition=iris-hi
 #SBATCH --time=48:00:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8
@@ -14,7 +14,7 @@
 export PIPELINE_DIR="pipeline_output_slow_fast_medium_no_rollouts_mid_range_discrete_single_pref"
 export WANDB_PROJECT="slow_fast_medium_no_rollouts_mid_range_discrete_single_pref"
 export NUM_REWARD_DIMS=1
-export REWARD_AXES="composite"
+export REWARD_AXES="composite(speed_reward+peg_reward)"
 
 # Left peg: speed [1, 4], Right peg: speed [1, 2]
 export SPEED_FACTOR_RANGE_LEFT="1 4"
@@ -29,6 +29,8 @@ export SHARED_DATA_DIR="shared_data_slow_fast_medium_no_rollouts_mid_range"
 
 # Per-axis eval z-score conditioning (length must match NUM_REWARD_DIMS=1)
 export EVAL_Z_POSITIVE="[0.7]"
+export REWARD_EPOCHS=20
 
-export RESUME_FROM_PHASE=5
+export RESUME_FROM_PHASE=1
 
+bash scripts/run_pipeline_slow_fast.sh

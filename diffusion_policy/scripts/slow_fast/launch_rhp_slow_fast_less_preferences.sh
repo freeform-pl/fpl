@@ -6,15 +6,14 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=awr_sf_mid
+#SBATCH --job-name=rhp_sf_lp
 #SBATCH --nodelist=iris7,iris8,iris10
 #SBATCH --output slurm/%j.out
 
-# AWR baseline for slow/fast MEDIUM — no rollouts, 200 scripted demos, mid range, DISCRETE conditioning
-export PIPELINE_DIR="pipeline_output_slow_fast_medium_no_rollouts_mid_range_discrete_awr"
-export WANDB_PROJECT="slow_fast_medium_no_rollouts_mid_range_discrete_awr"
-export COND_CONFIG="train_awr_flow_transformer_lowdim_workspace.yaml"
-export IS_CONDITIONED_EVAL=false
+# RHP baseline for slow/fast — less preferences (100 pairs), DISCRETE conditioning
+export PIPELINE_DIR="pipeline_output_slow_fast_less_preferences_rhp"
+export WANDB_PROJECT="slow_fast_less_preferences_rhp"
+export IS_CONDITIONED_EVAL=true
 export DISCRETE_CONDITIONING=true
 
 # Left peg: speed [1, 4], Right peg: speed [1, 2]
@@ -30,8 +29,19 @@ export SHARED_DATA_DIR="shared_data_slow_fast_medium_no_rollouts_mid_range"
 
 # Per-axis eval conditioning targets
 export REWARD_AXES="speed_reward,peg_reward"
+export EVAL_Z_POSITIVE="[0.9,0.9]"
+export EVAL_Z_NEGATIVE="[0.5,0.8]"
 export NUM_REWARD_DIMS=2
 export REWARD_EPOCHS=20
-export BASE_POLICY_EPOCHS=2000
-export RESUME_FROM_PHASE=4
+
+# Less preferences: 100 pairs instead of all pairs
+export N_PAIRS=100
+
+# Iterative refinement: collect rollouts with diverse conditioning, retrain reward + policy
+export N_ITERATIONS=3
+export N_ITER_ROLLOUTS=200
+# speed_reward in [0.5, 0.9] x peg_reward fixed at 0.9
+export CONDITIONING_TARGETS="0.5,0.9;0.6,0.9;0.7,0.9;0.8,0.9;0.9,0.9"
+
+export RESUME_FROM_PHASE=1
 bash scripts/run_pipeline_slow_fast.sh

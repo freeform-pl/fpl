@@ -17,8 +17,8 @@ eval "$(/iris/u/marcelto/miniconda3/bin/conda shell.bash hook)"
 conda activate lerobot
 
 python convert_custom_droid_to_lerobot.py \
-    --args.scores_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi/2026-05-07_21-50-42_transformer_j15364912_2100 \
-    --args.repo_name marcelto/setup_table_multi_standardized_1dp \
+    --args.scores_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi/2026-05-07_21-50-42_transformer_j15364912_250 \
+    --args.repo_name marcelto/setup_table_multi_standardized_1dp_250 \
     --args.task_prompt "set up the table" \
     --args.score_type standardized \
     --args.decimal_places 1 

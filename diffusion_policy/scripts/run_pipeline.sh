@@ -116,13 +116,18 @@ if [ "${SKIP_REWARD_MODEL}" = "true" ]; then
     echo "=== Phase 2: SKIPPED (not needed for ${BASELINE}) ==="
 elif [ ${RESUME_FROM_PHASE} -le 2 ]; then
     echo "=== Phase 2: Training reward model ==="
+    N_PAIRS_FLAG=""
+    if [ -n "${N_PAIRS:-}" ]; then
+        N_PAIRS_FLAG="--n_pairs ${N_PAIRS}"
+    fi
     python reward_model/train_reward_model.py \
         --rollout_data "${ROLLOUT_PATH}" \
         --demo_hdf5 "${DEMO_HDF5}" \
         --output_dir "${REWARD_DIR}" \
         --epochs ${REWARD_EPOCHS} \
         --wandb_project "${WANDB_PROJECT}" \
-        --reward_axes "${REWARD_AXES}"
+        --reward_axes "${REWARD_AXES}" \
+        ${N_PAIRS_FLAG}
 else
     echo "=== Phase 2: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
 fi
