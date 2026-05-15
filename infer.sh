@@ -1,13 +1,13 @@
 #!/bin/bash
 #SBATCH --account=iris
-#SBATCH --partition=iris # Run on IRIS nodes
+#SBATCH --partition=iris-hi # Run on IRIS nodes
 #SBATCH --time=120:00:00 # Max job length is 5 days
 #SBATCH --nodes=1 # Only use one node (machine)
 #SBATCH --cpus-per-task=4 # Request 8 CPUs for this task
 #SBATCH --mem=32G # Request 8GB of memory
 #SBATCH --gres=gpu:1 # Request one GPU
 #SBATCH --job-name=infer # Name the job (for easier monitoring)
-#SBATCH --nodelist=iris9,iris10,iris8,iris7,iris6,iris5,iris4# Don't run on iris1
+#SBATCH --nodelist=iris9,iris10#,iris8,iris7,iris6,iris5,iris4# Don't run on iris1
 #SBATCH --output slurm/%j.out # MAKE SURE slurm/ ALREADY EXISTS, OR ELSE YOUR JOB WILL FAIL SILENTLY!
 
 # Now your Python or general experiment/job runner code
@@ -38,3 +38,7 @@ source .venv/bin/activate
 
 # set up table discounted
 python infer.py --ckpt exp/2026-05-12_00-28-45_discounted_j15405355/checkpoints/step000500.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi_discounted/2026-05-12_00-28-45_discounted_j15405355_500
+# python infer.py --ckpt exp/2026-05-12_00-28-45_discounted_j15405355/checkpoints/step000500.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi_discounted/2026-05-12_00-28-45_discounted_j15405355_500
+
+# qwen discounted set up table
+python infer.py --ckpt exp/2026-05-14_14-51-17_qwen_open_discounted_j15435227/checkpoints/step001200.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi_qwen_discounted/2026-05-14_14-51-17_qwen_open_discounted_j15435227_1200

@@ -38,7 +38,7 @@ conda activate qwen310
 # - lr=1e-5, cosine schedule (matching sft_qwen3_4b.sh)
 # - batch_size=2 (single GPU, 4B model)
 python main.py \
-    --model qwen_open_discounted \
+    --model qwen_open \
     --stride 20 --seq_len 20 --img_size 128 \
     --batch_size 32 --epochs 1000 \
     --lr 1e-5 \
