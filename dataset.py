@@ -21,6 +21,22 @@ from torch.utils.data import Dataset
 from tasks import TASKS
 
 
+def _resolve_iris_path(path: str) -> str:
+    """Translate /iris/u/<user>/droid-robot/... -> /hai/scratch/marcelto/data/<user>/...
+    when the iris path is unavailable. Preference JSONs hardcode /iris absolute
+    paths; on haic those don't mount, but the same data exists under /hai/scratch/marcelto/data."""
+    if not isinstance(path, str) or not path.startswith("/iris/u/"):
+        return path
+    if os.path.exists(path):
+        return path
+    parts = path.split("/", 5)  # ['', 'iris', 'u', '<user>', 'droid-robot', '<rest>']
+    if len(parts) == 6 and parts[4] == "droid-robot":
+        alt = f"/hai/scratch/marcelto/data/{parts[3]}/{parts[5]}"
+        if os.path.exists(alt):
+            return alt
+    return path
+
+
 def _strided_indices(total: int, stride: int, seq_len: int, offset: int) -> list:
     """Return up to seq_len frame indices starting at offset with the given stride."""
     return list(range(offset, total, stride))[:seq_len]
@@ -502,6 +518,8 @@ def load_cross_preferences(
             # Direct-path mode: resolve to .hdf5 file
             hdf5_a = id_a if id_a.endswith(".hdf5") else id_a + ".hdf5"
             hdf5_b = id_b if id_b.endswith(".hdf5") else id_b + ".hdf5"
+            hdf5_a = _resolve_iris_path(hdf5_a)
+            hdf5_b = _resolve_iris_path(hdf5_b)
             if not os.path.exists(hdf5_a):
                 print(f"[cross_preferences] Skipping {os.path.basename(cross_file)}: "
                       f"rollout_A_id path not found: {hdf5_a}")
