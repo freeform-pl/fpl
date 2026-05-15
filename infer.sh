@@ -37,8 +37,27 @@ source .venv/bin/activate
 # python infer.py --ckpt exp/2026-05-07_21-53-40_transformer_j15364917/checkpoints/step001150.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_single/2026-05-07_21-53-40_transformer_j15364917_1150
 
 # set up table discounted
-python infer.py --ckpt exp/2026-05-12_00-28-45_discounted_j15405355/checkpoints/step000500.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi_discounted/2026-05-12_00-28-45_discounted_j15405355_500
+# python infer.py --ckpt exp/2026-05-12_00-28-45_discounted_j15405355/checkpoints/step000500.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi_discounted/2026-05-12_00-28-45_discounted_j15405355_500
 # python infer.py --ckpt exp/2026-05-12_00-28-45_discounted_j15405355/checkpoints/step000500.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi_discounted/2026-05-12_00-28-45_discounted_j15405355_500
 
 # qwen discounted set up table
-python infer.py --ckpt exp/2026-05-14_14-51-17_qwen_open_discounted_j15435227/checkpoints/step001200.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi_qwen_discounted/2026-05-14_14-51-17_qwen_open_discounted_j15435227_1200
+# python infer.py --ckpt exp/2026-05-14_14-51-17_qwen_open_discounted_j15435227/checkpoints/step001200.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi_qwen_discounted/2026-05-14_14-51-17_qwen_open_discounted_j15435227_1200
+
+python infer.py --ckpt exp/2026-05-14_14-51-17_qwen_open_discounted_j15435227/checkpoints/step005400.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /hai/scratch/marcelto/reward_learning/infer_output/setup_table_multi_qwen_discounted/2026-05-14_14-51-17_qwen_open_discounted_j15435227_5400
+
+python convert_custom_droid_to_lerobot.py \
+    --args.scores_dir /hai/scratch/marcelto/reward_learning/infer_output/setup_table_multi_qwen_discounted/2026-05-14_14-51-17_qwen_open_discounted_j15435227_5400 \
+    --args.repo_name marcelto/setup_table_multi_qwen_discounted_1dp_iter2_5400 \
+    --args.task_prompt "set up the table" \
+    --args.score_type standardized \
+    --args.decimal_places 1 
+
+# python infer.py --ckpt exp/2026-05-14_14-51-17_qwen_open_discounted_j15435227/checkpoints/step005400.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /hai/scratch/marcelto/reward_learning/infer_output/setup_table_multi_qwen_discounted_reduced/2026-05-14_14-51-17_qwen_open_discounted_j15435227_5400 --task setup_table_reduced
+
+# python convert_custom_droid_to_lerobot.py \
+#     --args.scores_dir /hai/scratch/marcelto/reward_learning/infer_output/setup_table_multi_qwen_discounted_reduced/2026-05-14_14-51-17_qwen_open_discounted_j15435227_5400 \
+#     --args.repo_name marcelto/setup_table_reduced_multi_qwen_discounted_1dp_iter2_5400 \
+#     --args.task_prompt "set up the table" \
+#     --args.score_type standardized \
+#     --args.decimal_places 1 
+    

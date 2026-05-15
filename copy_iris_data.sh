@@ -28,15 +28,15 @@ RSYNC="rsync -avh --partial --progress -e $RSH $EXC"
 
 # Pairs of "src_remote_path  dest_local_path"
 PAIRS=(
-    "/iris/u/am208/droid-robot/preferences_setup/             $DEST/am208/preferences_setup/"
-    "/iris/u/am208/droid-robot/cross_preferences_setup/       $DEST/am208/cross_preferences_setup/"
-    "/iris/u/abhijnya/droid-robot/cross_preferences_setup/    $DEST/abhijnya/cross_preferences_setup/"
-    "/iris/u/abhijnya/droid-robot/demos/table_setup/          $DEST/abhijnya/demos/table_setup/"
-    "/iris/u/am208/droid-robot/preferences/                   $DEST/am208/preferences/"
-    "/iris/u/am208/droid-robot/cross_preferences/             $DEST/am208/cross_preferences/"
-    "/iris/u/abhijnya/droid-robot/cross_preferences/          $DEST/abhijnya/cross_preferences/"
-    "/iris/u/am208/droid-robot/demos/test/                    $DEST/am208/demos/test/"
-    "/iris/u/abhijnya/droid-robot/demos/test/                 $DEST/abhijnya/demos/test/"
+    "/iris/u/am208/droid-robot/preferences_setup/             $DEST/am208/droid-robot/preferences_setup/"
+    "/iris/u/am208/droid-robot/cross_preferences_setup/       $DEST/am208/droid-robot/cross_preferences_setup/"
+    "/iris/u/abhijnya/droid-robot/cross_preferences_setup/    $DEST/abhijnya/droid-robot/cross_preferences_setup/"
+    "/iris/u/abhijnya/droid-robot/demos/table_setup/          $DEST/abhijnya/droid-robot/demos/table_setup/"
+    "/iris/u/am208/droid-robot/preferences/                   $DEST/am208/droid-robot/preferences/"
+    "/iris/u/am208/droid-robot/cross_preferences/             $DEST/am208/droid-robot/cross_preferences/"
+    "/iris/u/abhijnya/droid-robot/cross_preferences/          $DEST/abhijnya/droid-robot/cross_preferences/"
+    "/iris/u/am208/droid-robot/demos/test/                    $DEST/am208/droid-robot/demos/test/"
+    "/iris/u/abhijnya/droid-robot/demos/test/                 $DEST/abhijnya/droid-robot/demos/test/"
 )
 
 i=1

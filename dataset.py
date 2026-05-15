@@ -22,19 +22,13 @@ from tasks import TASKS
 
 
 def _resolve_iris_path(path: str) -> str:
-    """Translate /iris/u/<user>/droid-robot/... -> /hai/scratch/marcelto/data/<user>/...
-    when the iris path is unavailable. Preference JSONs hardcode /iris absolute
-    paths; on haic those don't mount, but the same data exists under /hai/scratch/marcelto/data."""
+    """Translate /iris/u/... -> /hai/scratch/marcelto/data/... when the iris path
+    is unavailable (haic doesn't mount /iris)."""
     if not isinstance(path, str) or not path.startswith("/iris/u/"):
         return path
     if os.path.exists(path):
         return path
-    parts = path.split("/", 5)  # ['', 'iris', 'u', '<user>', 'droid-robot', '<rest>']
-    if len(parts) == 6 and parts[4] == "droid-robot":
-        alt = f"/hai/scratch/marcelto/data/{parts[3]}/{parts[5]}"
-        if os.path.exists(alt):
-            return alt
-    return path
+    return "/hai/scratch/marcelto/data/" + path[len("/iris/u/"):]
 
 
 def _strided_indices(total: int, stride: int, seq_len: int, offset: int) -> list:

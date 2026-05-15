@@ -771,6 +771,9 @@ def main():
                         help="Number of trajectories to show in the ranking grid video")
     parser.add_argument("--ranking_cell_size", type=int, default=96,
                         help="Pixel size of each cell in the ranking grid")
+    parser.add_argument("--task", type=str, default=None,
+                        help="If set, override the task stored in the checkpoint and run "
+                             "inference using this task's preference axes instead.")
     args = parser.parse_args()
 
     args.preferences_dir = [d.strip() for d in args.preferences_dir.split(",")]
@@ -789,7 +792,16 @@ def main():
 
     print(f"Args: {args}")
 
-    task = saved_args.get("task", "cube_in_three_bowls")
+    saved_task = saved_args.get("task", "cube_in_three_bowls")
+    if args.task is not None:
+        if args.task not in TASKS:
+            parser.error(f"--task '{args.task}' not in TASKS (known: {sorted(TASKS)})")
+        if args.task != saved_task:
+            print(f"[task override] checkpoint trained on '{saved_task}', "
+                  f"running inference on '{args.task}'")
+        task = args.task
+    else:
+        task = saved_task
     args.preference_keys = TASKS[task]
 
     model_type = saved_args.get("model", "transformer")
