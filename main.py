@@ -131,6 +131,11 @@ def parse_args():
     p.add_argument("--log_interval", type=int, default=10, help="Log every N steps")
     p.add_argument("--eval_interval", type=int, default=50, help="Evaluate every N steps")
     p.add_argument("--vis_interval", type=int, default=100, help="Visualize every N steps")
+    p.add_argument("--small_vis_interval", type=int, default=999999,
+                   help="Run only the cheap pair-visualizations every N steps "
+                        "(skips top/bottom ranking; useful for slow models like Qwen)")
+    p.add_argument("--small_vis_max_samples", type=int, default=4,
+                   help="Number of pairs to visualize per call in small_vis mode")
     p.add_argument("--save_interval", type=int, default=200, help="Save checkpoint every N steps")
     p.add_argument("--max_vis_samples", type=int, default=8)
 
@@ -241,6 +246,39 @@ def augment_traj(x: torch.Tensor) -> torch.Tensor:
     out = torch.stack([_augment(x[b]) for b in range(B)])  # each call samples new params
     return out
 
+
+
+@torch.no_grad()
+def axis_sensitivity_probe(model, val_loader, device, all_axes, n_samples: int = 4):
+    """Feed the same trajectories to the model with every axis label and return
+    the resulting per-axis rewards.
+
+    Used to diagnose whether the model actually conditions its output on the
+    axis prompt. If the returned matrix has ~0 spread across axes, the model
+    is ignoring the label.
+
+    Returns: (mat (n_samples, n_axes), axes (list[str])) or (None, None).
+    """
+    if not isinstance(model, QwenRewardModel):
+        return None, None
+    was_training = model.training
+    model.eval()
+
+    batch = next(iter(val_loader))
+    tp = batch["traj_a"]["third_person"][:n_samples].to(device)
+    wr = batch["traj_a"]["wrist"][:n_samples].to(device)
+    mask = batch["traj_a"]["padding_mask"][:n_samples].to(device)
+    n = tp.shape[0]
+
+    cols = []
+    for ax in all_axes:
+        r = model(tp, wr, mask, axis_labels=[ax] * n)
+        cols.append(r.squeeze(-1).float().cpu().numpy())
+    mat = np.stack(cols, axis=1)  # (n_samples, n_axes)
+
+    if was_training:
+        model.train()
+    return mat, list(all_axes)
 
 
 def _per_sample_correct_labeled(r_a: torch.Tensor, r_b: torch.Tensor, labels: torch.Tensor):
@@ -811,11 +849,41 @@ def main():
                 if val_axis_acc:
                     ax_str = " | ".join(f"{k}: {v:.2f}" for k, v in sorted(val_axis_acc.items()))
                     print(f"  [Val per-axis] {ax_str}")
-                    if use_wandb:
-                        wandb.log(
-                            {f"val/acc_axis/{ax}": v for ax, v in val_axis_acc.items()},
-                            step=global_step,
-                        )
+                if use_wandb:
+                    val_log = {
+                        "val/loss": val_loss,
+                        "val/acc_mean": float(mean_val_acc),
+                        **{f"val/acc_{k}": float(v) for k, v in zip(preference_keys, val_acc)},
+                        **{f"val/acc_axis/{ax}": v for ax, v in val_axis_acc.items()},
+                    }
+                    wandb.log(val_log, step=global_step)
+
+                # ---- axis-sensitivity probe (open models only) ----
+                if args.model in ("qwen_open", "qwen_open_discounted"):
+                    probe_mat, probe_axes = axis_sensitivity_probe(
+                        model, val_loader, device, TASKS[args.task]
+                    )
+                    if probe_mat is not None:
+                        spread_per_sample = probe_mat.std(axis=1)
+                        spread_mean = float(spread_per_sample.mean())
+                        spread_max = float(spread_per_sample.max())
+                        reward_range = float(probe_mat.max() - probe_mat.min())
+                        print(f"  [Axis probe] mean spread {spread_mean:.4f} | "
+                              f"max spread {spread_max:.4f} | range {reward_range:.4f}")
+                        for i in range(probe_mat.shape[0]):
+                            ax_str = " | ".join(
+                                f"{a}: {probe_mat[i, j]:+.3f}"
+                                for j, a in enumerate(probe_axes)
+                            )
+                            print(f"    sample {i}: {ax_str}")
+                        if use_wandb:
+                            wandb.log({
+                                "diag/axis_spread_mean": spread_mean,
+                                "diag/axis_spread_max": spread_max,
+                                "diag/axis_reward_range": reward_range,
+                                **{f"diag/axis_reward_mean/{a}": float(probe_mat[:, j].mean())
+                                   for j, a in enumerate(probe_axes)},
+                            }, step=global_step)
                 plot_training_curves(
                     train_losses, train_accs, val_losses, val_accs,
                     out_path=os.path.join(args.out_dir, "training_curves.png"),
@@ -874,6 +942,32 @@ def main():
                         **{f"top_bottom_val/{k}": wandb.Video(p, format="mp4") for k, p in zip(preference_keys, top_bottom_val_mp4s)},
                         **{f"uniform_train/{k}": wandb.Video(p, format="mp4") for k, p in zip(preference_keys, uniform_train_mp4s)},
                         **{f"uniform_val/{k}": wandb.Video(p, format="mp4") for k, p in zip(preference_keys, uniform_val_mp4s)},
+                    }, step=global_step)
+
+            # ---- small visualization (pair plots only, no ranking) ----
+            if global_step % args.small_vis_interval == 0:
+                small_vis_dir = os.path.join(vis_dir, f"step{global_step:06d}_small")
+                n_vis_val = visualize_validation_batch(
+                    model, val_ds, device,
+                    out_dir=os.path.join(small_vis_dir, "val"),
+                    preference_keys=preference_keys,
+                    max_samples=args.small_vis_max_samples,
+                    step=global_step,
+                )
+                n_vis_train = visualize_validation_batch(
+                    model, train_ds, device,
+                    out_dir=os.path.join(small_vis_dir, "train"),
+                    preference_keys=preference_keys,
+                    max_samples=args.small_vis_max_samples,
+                    step=global_step,
+                )
+                print(f"  [SmallVis] Saved {n_vis_val} val + {n_vis_train} train → {small_vis_dir}")
+                if use_wandb:
+                    val_mp4s = sorted(f for f in os.listdir(os.path.join(small_vis_dir, "val")) if f.endswith(".mp4"))
+                    train_mp4s = sorted(f for f in os.listdir(os.path.join(small_vis_dir, "train")) if f.endswith(".mp4"))
+                    wandb.log({
+                        **{f"small_val/video_{i}": wandb.Video(os.path.join(small_vis_dir, "val", f), format="mp4") for i, f in enumerate(val_mp4s)},
+                        **{f"small_train/video_{i}": wandb.Video(os.path.join(small_vis_dir, "train", f), format="mp4") for i, f in enumerate(train_mp4s)},
                     }, step=global_step)
 
             # ---- checkpoint ----

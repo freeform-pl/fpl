@@ -64,21 +64,32 @@ def score_trajectory(model, hdf5_path: str, args, device: torch.device) -> dict:
     """Return raw scores only; buckets are added after quantile edges are computed."""
     traj = load_trajectory(hdf5_path, args.stride, args.seq_len, (args.img_size, args.img_size), offset=0)
 
+    tp = traj["third_person"].unsqueeze(0).to(device)
+    wr = traj["wrist"].unsqueeze(0).to(device)
+    pm = traj["padding_mask"].unsqueeze(0).to(device)
+
     with torch.no_grad():
         if isinstance(model, FlowRewardModel):
             obs = {
-                "third_person": traj["third_person"].unsqueeze(0).to(device),
-                "wrist": traj["wrist"].unsqueeze(0).to(device),
-                "padding_mask": traj["padding_mask"].unsqueeze(0).to(device),
+                "third_person": tp,
+                "wrist": wr,
+                "padding_mask": pm,
                 "proprio": traj["proprio"].unsqueeze(0).to(device),
             }
             rewards = model(obs)  # (1, K)
-        else:
-            rewards = model(
-                traj["third_person"].unsqueeze(0).to(device),
-                traj["wrist"].unsqueeze(0).to(device),
-                traj["padding_mask"].unsqueeze(0).to(device),
-            )  # (1, K)
+            return {k: float(rewards[0, i]) for i, k in enumerate(args.preference_keys)}
+
+        if getattr(args, "is_open_qwen", False):
+            # Open Qwen: single reward head, run once per axis with axis name in prompt
+            result = {}
+            for k in args.preference_keys:
+                rewards = model(tp, wr, pm, axis_labels=[k])  # (1, 1)
+                result[k] = float(rewards[0, 0])
+            return result
+
+        rewards = model(
+            tp, wr, pm,
+        )  # (1, K)
 
     return {k: float(rewards[0, i]) for i, k in enumerate(args.preference_keys)}
 
@@ -380,6 +391,325 @@ def plot_per_frame_rewards(
         print(f"  Per-frame plot saved → {out_path}")
 
 
+def plot_success_separation(
+    results: list,
+    solo_results: list,
+    score_stats: dict,
+    preference_keys: list[str],
+    output_dir: str,
+    prefix: str,
+) -> None:
+    """Generate box-plot and histogram comparing demos vs successful/failed rollouts (standardized)."""
+    dims = preference_keys
+
+    # Categorize rollouts by success using preference.json
+    rollouts_success, rollouts_fail = [], []
+    for pref_dir, hdf5_a, raw_a, hdf5_b, raw_b in results:
+        pref_file = os.path.join(pref_dir, "preference.json")
+        if not os.path.exists(pref_file):
+            continue
+        with open(pref_file) as f:
+            pref_data = json.load(f)
+        for raw, suffix in [(raw_a, "A"), (raw_b, "B")]:
+            succeeded = pref_data.get(f"rollout_{suffix}", {}).get("succeeded", None)
+            if succeeded is None:
+                continue
+            std_scores = {k: (v - score_stats[k]["mean"]) / max(score_stats[k]["std"], 1e-8)
+                          for k, v in raw.items()}
+            (rollouts_success if succeeded else rollouts_fail).append(std_scores)
+
+    # Demos are standalone trajectories
+    demo_std = []
+    for hdf5_path, raw in solo_results:
+        std_scores = {k: (v - score_stats[k]["mean"]) / max(score_stats[k]["std"], 1e-8)
+                      for k, v in raw.items()}
+        demo_std.append(std_scores)
+
+    n_demos = len(demo_std)
+    n_success = len(rollouts_success)
+    n_fail = len(rollouts_fail)
+    if n_success + n_fail == 0:
+        print("  [skip] No rollouts with success labels found — skipping success separation plots.")
+        return
+
+    def collect(data_list):
+        return {d: [r[d] for r in data_list] for d in dims}
+
+    demo_scores = collect(demo_std) if demo_std else {d: [] for d in dims}
+    success_scores = collect(rollouts_success)
+    fail_scores = collect(rollouts_fail)
+
+    colors = ["#4dabf7", "#51cf66", "#ff6b6b"]
+
+    # --- Plot 1: per-dimension box plots (demos vs success vs fail) ---
+    n_cols = min(5, len(dims))
+    n_rows = int(np.ceil(len(dims) / n_cols))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.8 * n_cols, 5 * n_rows))
+    axes = np.atleast_1d(axes).flatten()
+
+    categories = []
+    cat_labels = []
+    cat_colors = []
+    if demo_std:
+        categories.append(demo_scores)
+        cat_labels.append("Demos")
+        cat_colors.append(colors[0])
+    categories.append(success_scores)
+    cat_labels.append("Rollout\nSuccess")
+    cat_colors.append(colors[1])
+    categories.append(fail_scores)
+    cat_labels.append("Rollout\nFail")
+    cat_colors.append(colors[2])
+
+    for i, dim in enumerate(dims):
+        ax = axes[i]
+        data = [cat[dim] for cat in categories]
+        bp = ax.boxplot(data, tick_labels=cat_labels, patch_artist=True, widths=0.6)
+        for j, box in enumerate(bp["boxes"]):
+            box.set_facecolor(cat_colors[j])
+            box.set_alpha(0.7)
+        ax.set_title(dim, fontsize=10, fontweight="bold")
+        ax.set_ylabel("Standardized Score")
+        ax.axhline(y=0, color="black", linestyle="--", alpha=0.3)
+        ax.grid(True, alpha=0.3)
+    for i in range(len(dims), len(axes)):
+        axes[i].set_visible(False)
+
+    title_parts = []
+    if demo_std:
+        title_parts.append(f"Demos: {n_demos}")
+    title_parts += [f"Rollout Success: {n_success}", f"Rollout Fail: {n_fail}"]
+    plt.suptitle(
+        f"Demos vs Rollouts (Standardized Scores)\n{', '.join(title_parts)}",
+        fontsize=14, fontweight="bold",
+    )
+    plt.tight_layout()
+    boxplot_path = os.path.join(output_dir, f"{prefix}_demos_vs_rollouts_boxplot.png")
+    plt.savefig(boxplot_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    # --- Plot 2: overall histogram ---
+    fig2, ax2 = plt.subplots(figsize=(10, 6))
+    fail_overall = [np.mean([r[d] for d in dims]) for r in rollouts_fail]
+    success_overall = [np.mean([r[d] for d in dims]) for r in rollouts_success]
+    demo_overall = [np.mean([r[d] for d in dims]) for r in demo_std] if demo_std else []
+
+    ax2.hist(fail_overall, bins=30, alpha=0.6, color="#ff6b6b",
+             label=f"Rollout Fail (n={n_fail})", edgecolor="black")
+    ax2.hist(success_overall, bins=30, alpha=0.6, color="#51cf66",
+             label=f"Rollout Success (n={n_success})", edgecolor="black")
+    if demo_overall:
+        ax2.hist(demo_overall, bins=30, alpha=0.6, color="#4dabf7",
+                 label=f"Demos (n={n_demos})", edgecolor="black")
+    ax2.axvline(x=0, color="black", linestyle="--", alpha=0.5, label="Mean (z=0)")
+    ax2.set_xlabel("Mean Standardized Score (across all dimensions)", fontsize=12)
+    ax2.set_ylabel("Count", fontsize=12)
+    ax2.set_title("Overall Score Distribution (Standardized)", fontsize=14, fontweight="bold")
+    ax2.legend(fontsize=11)
+    ax2.grid(True, alpha=0.3)
+    plt.tight_layout()
+    hist_path = os.path.join(output_dir, f"{prefix}_demos_vs_rollouts_histogram.png")
+    plt.savefig(hist_path, dpi=150, bbox_inches="tight")
+    plt.close(fig2)
+
+    # --- Plot 3: per-axis histograms ---
+    n_cols_h = min(5, len(dims))
+    n_rows_h = int(np.ceil(len(dims) / n_cols_h))
+    fig3, axes3 = plt.subplots(n_rows_h, n_cols_h, figsize=(4.8 * n_cols_h, 4 * n_rows_h))
+    axes3 = np.atleast_1d(axes3).flatten()
+
+    for i, dim in enumerate(dims):
+        ax = axes3[i]
+        all_vals = fail_scores[dim] + success_scores[dim] + demo_scores[dim]
+        if not all_vals:
+            continue
+        lo, hi = min(all_vals), max(all_vals)
+        bins = np.linspace(lo - 0.1, hi + 0.1, 25)
+        ax.hist(fail_scores[dim], bins=bins, alpha=0.6, color="#ff6b6b",
+                label="Rollout Fail", edgecolor="black", linewidth=0.3)
+        ax.hist(success_scores[dim], bins=bins, alpha=0.6, color="#51cf66",
+                label="Rollout Success", edgecolor="black", linewidth=0.3)
+        if demo_scores[dim]:
+            ax.hist(demo_scores[dim], bins=bins, alpha=0.6, color="#4dabf7",
+                    label="Demos", edgecolor="black", linewidth=0.3)
+        ax.axvline(x=0, color="black", linestyle="--", alpha=0.4)
+        ax.set_title(dim, fontsize=10, fontweight="bold")
+        ax.set_xlabel("Standardized Score")
+        ax.set_ylabel("Count")
+        ax.grid(True, alpha=0.3)
+        if i == 0:
+            ax.legend(fontsize=8)
+    for i in range(len(dims), len(axes3)):
+        axes3[i].set_visible(False)
+
+    plt.suptitle(
+        f"Per-Axis Score Distribution (Standardized)\n{', '.join(title_parts)}",
+        fontsize=14, fontweight="bold",
+    )
+    plt.tight_layout()
+    per_axis_path = os.path.join(output_dir, f"{prefix}_demos_vs_rollouts_per_axis.png")
+    plt.savefig(per_axis_path, dpi=150, bbox_inches="tight")
+    plt.close(fig3)
+
+    print(f"Success-separation plots saved → {boxplot_path}")
+    print(f"                                → {hist_path}")
+    print(f"                                → {per_axis_path}")
+
+
+def create_overall_ranking_video(
+    rd: "RewardData",
+    output_dir: str,
+    prefix: str,
+    args,
+    n_sample: int = 40,
+    cell_size: int = 128,
+):
+    """
+    Grid video of n_sample random rollouts ordered worst→best by mean standardized score.
+
+    Each cell shows agent_view frames with the rank, mean z-score, and session name overlaid.
+    Ordered left-to-right, top-to-bottom from worst to best.
+    Returns the output path, or None on failure.
+    """
+    N = rd.N
+    if N == 0:
+        return None
+
+    # Pick random subset
+    rng = np.random.default_rng(42)
+    sample_idx = rng.choice(N, size=min(n_sample, N), replace=False)
+
+    # Sort by mean standardized score (worst first)
+    mean_std = rd.standardized[sample_idx].mean(axis=1)  # (n_sample,)
+    order = np.argsort(mean_std)
+    sample_idx = sample_idx[order]
+    mean_std = mean_std[order]
+
+    n = len(sample_idx)
+    n_cols = int(np.ceil(np.sqrt(n)))
+    n_rows = int(np.ceil(n / n_cols))
+
+    # Load frames
+    loaded = []
+    for pos, idx in enumerate(sample_idx):
+        hdf5 = str(rd.hdf5_paths[idx])
+        try:
+            frames = _load_frames(hdf5, args.stride, args.seq_len, cell_size)
+            loaded.append((pos, idx, frames, float(mean_std[pos])))
+        except Exception:
+            pass
+
+    if not loaded:
+        return None
+
+    T = max(f.shape[0] for _, _, f, _ in loaded)
+    grid_h = n_rows * cell_size
+    grid_w = n_cols * cell_size
+
+    out_path = os.path.join(output_dir, f"{prefix}_overall_ranking.mp4")
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(out_path, fourcc, 10.0, (grid_w, grid_h))
+
+    for t in range(T):
+        grid = np.zeros((grid_h, grid_w, 3), dtype=np.uint8)
+        for pos, idx, frames, z_mean in loaded:
+            row, col = divmod(pos, n_cols)
+            y0, x0 = row * cell_size, col * cell_size
+            if t >= frames.shape[0]:
+                cell = np.zeros((cell_size, cell_size, 3), dtype=np.uint8)
+            else:
+                cell = frames[t].copy()
+
+            # Rank label at top
+            rank_line = f"#{pos+1}  z={z_mean:.2f}"
+            cv2.putText(cell, rank_line, (2, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(cell, rank_line, (2, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1, cv2.LINE_AA)
+
+            # Session + rollout label at bottom
+            session = str(rd.sessions[idx])
+            rollout = str(rd.rollouts[idx])
+            info_line = f"{session[-8:]}/{rollout}" if len(session) > 8 else f"{session}/{rollout}"
+            cv2.putText(cell, info_line, (2, cell_size - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.28, (0, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(cell, info_line, (2, cell_size - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.28, (255, 255, 255), 1, cv2.LINE_AA)
+
+            # Per-dim z-scores stacked above bottom label
+            dim_lines = [f"{k[:6]}:{rd.standardized[idx, i]:.1f}" for i, k in enumerate(rd.keys)]
+            for li, line in enumerate(reversed(dim_lines)):
+                y_text = cell_size - 18 - li * 11
+                if y_text < 20:
+                    break
+                cv2.putText(cell, line, (2, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.25, (0, 0, 0), 2, cv2.LINE_AA)
+                cv2.putText(cell, line, (2, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.25, (200, 255, 200), 1, cv2.LINE_AA)
+
+            grid[y0:y0 + cell_size, x0:x0 + cell_size] = cell
+        writer.write(cv2.cvtColor(grid, cv2.COLOR_RGB2BGR))
+
+    writer.release()
+    print(f"Overall ranking video saved → {out_path}")
+    return out_path
+
+
+def plot_session_ranking(
+    rd: "RewardData",
+    output_dir: str,
+    prefix: str,
+) -> None:
+    """Bar chart of sessions ranked by mean standardized score, with per-dimension breakdown."""
+    sessions = np.unique(rd.sessions)
+    if len(sessions) < 2:
+        print("  [skip] Not enough sessions for ranking plot.")
+        return
+
+    # Compute mean standardized score per session (overall and per-dim)
+    rows = []
+    for s in sessions:
+        idx = rd.for_session(s)
+        overall = float(rd.standardized[idx].mean())
+        per_dim = {k: float(rd.standardized[idx, i].mean()) for i, k in enumerate(rd.keys)}
+        rows.append({"session": s, "overall": overall, **per_dim})
+    rows.sort(key=lambda r: r["overall"])
+
+    session_labels = [r["session"] for r in rows]
+    overall_scores = [r["overall"] for r in rows]
+    K = rd.K
+
+    # --- Plot 1: Overall ranking bar chart ---
+    fig_height = max(6, len(sessions) * 0.3)
+    fig, ax = plt.subplots(figsize=(10, fig_height))
+    colors = ["#51cf66" if s >= 0 else "#ff6b6b" for s in overall_scores]
+    y_pos = np.arange(len(sessions))
+    ax.barh(y_pos, overall_scores, color=colors, alpha=0.7, edgecolor="black", linewidth=0.3)
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(session_labels, fontsize=7)
+    ax.axvline(x=0, color="black", linestyle="--", alpha=0.5)
+    ax.set_xlabel("Mean Standardized Score (across all dimensions)", fontsize=10)
+    ax.set_title(f"Session Ranking by Overall Reward Score\n({len(sessions)} sessions)", fontsize=12, fontweight="bold")
+    ax.grid(True, alpha=0.3, axis="x")
+    plt.tight_layout()
+    overall_path = os.path.join(output_dir, f"{prefix}_session_ranking.png")
+    plt.savefig(overall_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    # --- Plot 2: Per-dimension ranking heatmap ---
+    dim_matrix = np.array([[r[k] for k in rd.keys] for r in rows])  # (n_sessions, K)
+    fig, ax = plt.subplots(figsize=(max(8, K * 1.2), fig_height))
+    vmax = max(abs(dim_matrix.min()), abs(dim_matrix.max()))
+    im = ax.imshow(dim_matrix, aspect="auto", cmap="RdYlGn", vmin=-vmax, vmax=vmax)
+    ax.set_yticks(np.arange(len(sessions)))
+    ax.set_yticklabels(session_labels, fontsize=7)
+    ax.set_xticks(np.arange(K))
+    ax.set_xticklabels(rd.keys, fontsize=8, rotation=45, ha="right")
+    ax.set_title("Session × Dimension Mean Standardized Scores", fontsize=12, fontweight="bold")
+    plt.colorbar(im, ax=ax, label="Standardized Score", shrink=0.8)
+    plt.tight_layout()
+    heatmap_path = os.path.join(output_dir, f"{prefix}_session_ranking_heatmap.png")
+    plt.savefig(heatmap_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    print(f"Session ranking plots saved → {overall_path}")
+    print(f"                            → {heatmap_path}")
+
+
 def print_stats(all_scores: dict[str, list[float]], quantile_edges: dict[str, list[float]]) -> None:
     """Print per-key min/max/percentiles and ASCII histograms for both bucket types."""
     print("\n" + "=" * 70)
@@ -483,16 +813,21 @@ def main():
             embed_dim=args.embed_dim,
             gamma=saved_args.get("gamma", 0.99),
         ).to(device)
-    elif model_type in ("qwen", "qwen_lora"):
+    elif model_type in ("qwen", "qwen_lora", "qwen_open",
+                         "qwen_discounted", "qwen_open_discounted"):
+        is_open = model_type in ("qwen_open", "qwen_open_discounted")
+        is_discounted = model_type in ("qwen_discounted", "qwen_open_discounted")
         model = QwenRewardModel(
-            num_preferences=len(args.preference_keys),
+            num_preferences=1 if is_open else len(args.preference_keys),
             model_name=saved_args.get("qwen_model_name", "Qwen/Qwen3-VL-4B-Instruct"),
             use_lora=(model_type == "qwen_lora"),
             lora_r=saved_args.get("lora_r", 64),
             lora_alpha=saved_args.get("lora_alpha", 16),
             reward_sigmoid=saved_args.get("reward_sigmoid", False),
             gradient_checkpointing=False,  # not needed at inference
+            discounted=is_discounted,
         ).to(device)
+        args.is_open_qwen = is_open
     else:
         model = RewardModel(
             num_preferences=len(args.preference_keys),
@@ -503,6 +838,8 @@ def main():
             dropout=saved_args.get("dropout", 0.1),
             backbone=saved_args.get("backbone", "resnet18"),
         ).to(device)
+    if not hasattr(args, "is_open_qwen"):
+        args.is_open_qwen = False
     if isinstance(model, QwenRewardModel):
         model.load_checkpoint_state_dict(ckpt["model"])
     else:
@@ -793,6 +1130,16 @@ def main():
     rd = RewardData(npz_path)
     plot_scatter_matrix(rd, os.path.join(analysis_dir, f"{prefix}_scatter_matrix.png"))
     plot_dim_histograms(rd, os.path.join(analysis_dir, f"{prefix}_dim_histograms.png"))
+
+    # --- Session ranking plots and video ---
+    plot_session_ranking(rd, analysis_dir, prefix)
+    create_overall_ranking_video(rd, analysis_dir, prefix, args)
+
+    # --- Success separation plots ---
+    plot_success_separation(
+        results, solo_results, score_stats,
+        args.preference_keys, analysis_dir, prefix,
+    )
 
     if args.wandb:
         import wandb
