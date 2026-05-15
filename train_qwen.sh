@@ -10,12 +10,25 @@
 #SBATCH --nodelist=iris-hgx-1,iris-hgx-2
 #SBATCH --output slurm/%j.out
 
-cd /iris/u/marcelto/reward_learning
-export HOME=/iris/u/marcelto
-eval "$(/iris/u/marcelto/miniconda3/bin/conda shell.bash hook)"
+# Detect cluster: prefer iris if mounted, otherwise fall back to haic.
+if [ -d /iris/u/marcelto ]; then
+    REWARD_LEARNING_DIR=/iris/u/marcelto/reward_learning
+    CONDA_ROOT=/iris/u/marcelto/miniconda3
+    DATA_AM208=/iris/u/am208/droid-robot
+    DATA_ABHIJNYA=/iris/u/abhijnya/droid-robot
+    export HOME=/iris/u/marcelto
+elif [ -d /hai/scratch/marcelto ]; then
+    REWARD_LEARNING_DIR=/hai/scratch/marcelto/reward_learning
+    CONDA_ROOT=/hai/scratch/marcelto/miniconda3
+    DATA_AM208=/hai/scratch/marcelto/data/am208
+    DATA_ABHIJNYA=/hai/scratch/marcelto/data/abhijnya
+else
+    echo "ERROR: neither /iris/u/marcelto nor /hai/scratch/marcelto present" >&2
+    exit 1
+fi
 
-# eval "$(/scr/marcelto/miniconda3/bin/conda shell.bash hook)"
-
+cd "$REWARD_LEARNING_DIR"
+eval "$(${CONDA_ROOT}/bin/conda shell.bash hook)"
 conda activate qwen310
 
 
@@ -32,8 +45,8 @@ python main.py \
     --equal_weight 0.0 \
     --preload --preload_offsets 10 \
     --eval_interval 50 --vis_interval 999999 --log_interval 1 --save_interval 50 \
-    --preferences_dir /iris/u/am208/droid-robot/preferences_setup \
-    --cross_preferences_dir /iris/u/abhijnya/droid-robot/cross_preferences_setup,/iris/u/am208/droid-robot/cross_preferences_setup \
+    --preferences_dir "${DATA_AM208}/preferences_setup" \
+    --cross_preferences_dir "${DATA_ABHIJNYA}/cross_preferences_setup,${DATA_AM208}/cross_preferences_setup" \
     --task setup_table
 
 
@@ -44,6 +57,6 @@ python main.py \
 #     --lr 1e-5 \
 #     --preload_offsets 10 \
 #     --eval_interval 50 --vis_interval 999999 --log_interval 1 --save_interval 50 \
-#     --preferences_dir /iris/u/am208/droid-robot/preferences_setup \
-#     --cross_preferences_dir /iris/u/abhijnya/droid-robot/cross_preferences_setup,/iris/u/am208/droid-robot/cross_preferences_setup \
+#     --preferences_dir "${DATA_AM208}/preferences_setup" \
+#     --cross_preferences_dir "${DATA_ABHIJNYA}/cross_preferences_setup,${DATA_AM208}/cross_preferences_setup" \
 #     --task setup_table

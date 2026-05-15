@@ -38,4 +38,3 @@ source .venv/bin/activate
 
 # set up table discounted
 python infer.py --ckpt exp/2026-05-12_00-28-45_discounted_j15405355/checkpoints/step000500.pt --preferences_dir  /iris/u/am208/droid-robot/preferences_setup,/iris/u/abhijnya/droid-robot/demos/table_setup/ --output_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi_discounted/2026-05-12_00-28-45_discounted_j15405355_500
-
