@@ -24,6 +24,15 @@ python convert_custom_droid_to_lerobot.py \
     --args.decimal_places 1 
 
 
+python convert_custom_droid_to_lerobot.py \
+    --args.scores_dir /iris/u/marcelto/reward_learning/infer_output/setup_table_multi_qwen_discounted/2026-05-14_14-51-17_qwen_open_discounted_j15435227_1200 \
+    --args.repo_name marcelto/setup_table_multi_standardized_1dp_iter2_qwen_discounted_1200 \
+    --args.task_prompt "set up the table" \
+    --args.score_type standardized \
+    --args.decimal_places 1 
+
+
+
 # python convert_custom_droid_to_lerobot.py \
 #     --args.scores-dir /iris/u/marcelto/reward_learning/infer_output/fold_pants_multi/2026-05-07_22-42-32_transformer_j15366663_1400 \
 #     --args.repo-name marcelto/fold_pants_multi_standardized_1dp \
