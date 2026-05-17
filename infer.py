@@ -565,88 +565,96 @@ def create_overall_ranking_video(
     cell_size: int = 128,
 ):
     """
-    Grid video of n_sample random rollouts ordered worst→best by mean standardized score.
+    For each preference axis, write a grid video of n_sample random rollouts
+    ordered worst→best by that axis's standardized score.
 
-    Each cell shows agent_view frames with the rank, mean z-score, and session name overlaid.
-    Ordered left-to-right, top-to-bottom from worst to best.
-    Returns the output path, or None on failure.
+    Each cell shows agent_view frames with the rank, axis z-score, and session
+    name overlaid. The same random subset is used across axes so videos are
+    comparable. Returns a list of output paths.
     """
     N = rd.N
     if N == 0:
-        return None
+        return []
 
-    # Pick random subset
+    # Pick one random subset and reuse it across axes for comparability
     rng = np.random.default_rng(42)
     sample_idx = rng.choice(N, size=min(n_sample, N), replace=False)
 
-    # Sort by mean standardized score (worst first)
-    mean_std = rd.standardized[sample_idx].mean(axis=1)  # (n_sample,)
-    order = np.argsort(mean_std)
-    sample_idx = sample_idx[order]
-    mean_std = mean_std[order]
+    # Pre-load frames once per trajectory in the sample
+    frames_by_idx = {}
+    for idx in sample_idx:
+        hdf5 = str(rd.hdf5_paths[idx])
+        try:
+            frames_by_idx[idx] = _load_frames(hdf5, args.stride, args.seq_len, cell_size)
+        except Exception:
+            pass
+
+    if not frames_by_idx:
+        return []
 
     n = len(sample_idx)
     n_cols = int(np.ceil(np.sqrt(n)))
     n_rows = int(np.ceil(n / n_cols))
-
-    # Load frames
-    loaded = []
-    for pos, idx in enumerate(sample_idx):
-        hdf5 = str(rd.hdf5_paths[idx])
-        try:
-            frames = _load_frames(hdf5, args.stride, args.seq_len, cell_size)
-            loaded.append((pos, idx, frames, float(mean_std[pos])))
-        except Exception:
-            pass
-
-    if not loaded:
-        return None
-
-    T = max(f.shape[0] for _, _, f, _ in loaded)
     grid_h = n_rows * cell_size
     grid_w = n_cols * cell_size
 
-    out_path = os.path.join(output_dir, f"{prefix}_overall_ranking.mp4")
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(out_path, fourcc, 10.0, (grid_w, grid_h))
+    out_paths = []
+    for ki, key in enumerate(rd.keys):
+        # Sort the sample by this axis's standardized score (worst first)
+        axis_std = rd.standardized[sample_idx, ki]
+        order = np.argsort(axis_std)
+        ordered_idx = sample_idx[order]
+        ordered_z = axis_std[order]
 
-    for t in range(T):
-        grid = np.zeros((grid_h, grid_w, 3), dtype=np.uint8)
-        for pos, idx, frames, z_mean in loaded:
-            row, col = divmod(pos, n_cols)
-            y0, x0 = row * cell_size, col * cell_size
-            if t >= frames.shape[0]:
-                cell = np.zeros((cell_size, cell_size, 3), dtype=np.uint8)
-            else:
-                cell = frames[t].copy()
+        loaded = [
+            (pos, idx, frames_by_idx[idx], float(z))
+            for pos, (idx, z) in enumerate(zip(ordered_idx, ordered_z))
+            if idx in frames_by_idx
+        ]
+        if not loaded:
+            continue
 
-            # Rank label at top
-            rank_line = f"#{pos+1}  z={z_mean:.2f}"
-            cv2.putText(cell, rank_line, (2, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 2, cv2.LINE_AA)
-            cv2.putText(cell, rank_line, (2, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1, cv2.LINE_AA)
+        T = max(f.shape[0] for _, _, f, _ in loaded)
+        key_safe = key.replace(" ", "_").replace("/", "_")
+        out_path = os.path.join(output_dir, f"{prefix}_overall_ranking_{key_safe}.mp4")
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(out_path, fourcc, 10.0, (grid_w, grid_h))
 
-            # Session + rollout label at bottom
-            session = str(rd.sessions[idx])
-            rollout = str(rd.rollouts[idx])
-            info_line = f"{session[-8:]}/{rollout}" if len(session) > 8 else f"{session}/{rollout}"
-            cv2.putText(cell, info_line, (2, cell_size - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.28, (0, 0, 0), 2, cv2.LINE_AA)
-            cv2.putText(cell, info_line, (2, cell_size - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.28, (255, 255, 255), 1, cv2.LINE_AA)
+        for t in range(T):
+            grid = np.zeros((grid_h, grid_w, 3), dtype=np.uint8)
+            for pos, idx, frames, z in loaded:
+                row, col = divmod(pos, n_cols)
+                y0, x0 = row * cell_size, col * cell_size
+                if t >= frames.shape[0]:
+                    cell = np.zeros((cell_size, cell_size, 3), dtype=np.uint8)
+                else:
+                    cell = frames[t].copy()
 
-            # Per-dim z-scores stacked above bottom label
-            dim_lines = [f"{k[:6]}:{rd.standardized[idx, i]:.1f}" for i, k in enumerate(rd.keys)]
-            for li, line in enumerate(reversed(dim_lines)):
-                y_text = cell_size - 18 - li * 11
-                if y_text < 20:
-                    break
-                cv2.putText(cell, line, (2, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.25, (0, 0, 0), 2, cv2.LINE_AA)
-                cv2.putText(cell, line, (2, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.25, (200, 255, 200), 1, cv2.LINE_AA)
+                # Rank + axis z-score at top
+                rank_line = f"#{pos+1}  z={z:.2f}"
+                cv2.putText(cell, rank_line, (2, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 2, cv2.LINE_AA)
+                cv2.putText(cell, rank_line, (2, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1, cv2.LINE_AA)
 
-            grid[y0:y0 + cell_size, x0:x0 + cell_size] = cell
-        writer.write(cv2.cvtColor(grid, cv2.COLOR_RGB2BGR))
+                # Axis name just below top label
+                axis_line = key[:18]
+                cv2.putText(cell, axis_line, (2, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.30, (0, 0, 0), 2, cv2.LINE_AA)
+                cv2.putText(cell, axis_line, (2, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.30, (200, 255, 200), 1, cv2.LINE_AA)
 
-    writer.release()
-    print(f"Overall ranking video saved → {out_path}")
-    return out_path
+                # Session + rollout label at bottom
+                session = str(rd.sessions[idx])
+                rollout = str(rd.rollouts[idx])
+                info_line = f"{session[-8:]}/{rollout}" if len(session) > 8 else f"{session}/{rollout}"
+                cv2.putText(cell, info_line, (2, cell_size - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.28, (0, 0, 0), 2, cv2.LINE_AA)
+                cv2.putText(cell, info_line, (2, cell_size - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.28, (255, 255, 255), 1, cv2.LINE_AA)
+
+                grid[y0:y0 + cell_size, x0:x0 + cell_size] = cell
+            writer.write(cv2.cvtColor(grid, cv2.COLOR_RGB2BGR))
+
+        writer.release()
+        print(f"Overall ranking video saved → {out_path}")
+        out_paths.append(out_path)
+
+    return out_paths
 
 
 def plot_session_ranking(

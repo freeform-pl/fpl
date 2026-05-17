@@ -45,31 +45,20 @@ echo "=== Python: $(which python) ==="
 # - lr=1e-5, cosine schedule (matching sft_qwen3_4b.sh)
 # python main.py \
 #     --model qwen_open_discounted \
-#     --stride 20 --seq_len 20 --img_size 128 \
+#     --stride 10 --seq_len 40 --img_size 128 \
 #     --batch_size 32 --epochs 1000 \
 #     --lr 1e-5 \
 #     --equal_weight 0.0 \
 #     --preload --preload_offsets 10 \
-#     --eval_interval 50 --vis_interval 999999 --small_vis_interval 200 --log_interval 1 --save_interval 50 \
+#     --eval_interval 50 --vis_interval 999999 --small_vis_interval 200 --log_interval 1 --save_interval 500 \
 #     --preferences_dir "${DATA_AM208}/droid-robot/preferences_setup" \
 #     --cross_preferences_dir "${DATA_ABHIJNYA}/droid-robot/cross_preferences_setup,${DATA_AM208}/droid-robot/cross_preferences_setup" \
 #     --task setup_table
 
-# python main.py \
-#     --model qwen_open_discounted \
-#     --stride 60 --seq_len 20 --img_size 128 \
-#     --batch_size 32 --epochs 1000 \
-#     --lr 1e-5 \
-#     --equal_weight 0.0 \
-#     --preload --preload_offsets 30 \
-#     --eval_interval 50 --vis_interval 999999 --small_vis_interval 200 --log_interval 1 --save_interval 50 \
-#     --preferences_dir /iris/u/am208/ \
-#     --cross_preferences_dir /iris/u/abhijnya/,/iris/u/am208/droid-robot/cross_preferences \
-#     --task fold_pants 
 
 python main.py \
     --model qwen_open_discounted \
-    --stride 60 --seq_len 20 --img_size 128 \
+    --stride 30 --seq_len 40 --img_size 128 \
     --batch_size 32 --epochs 1000 \
     --lr 1e-5 \
     --equal_weight 0.0 \
