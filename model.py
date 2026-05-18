@@ -332,7 +332,9 @@ def bradley_terry_loss(
     is_b = (labels == 0.0)
     is_eq = (labels == 0.5)
 
-    loss = torch.zeros(1, device=rewards_a.device)
+    # Zero-valued term tied to model outputs so loss always has a grad_fn
+    # (DDP-safe even when this rank's batch has no labeled pairs).
+    loss = 0.0 * (rewards_a.sum() + rewards_b.sum())
     n = torch.zeros(1, device=rewards_a.device)
 
     if is_a.any():

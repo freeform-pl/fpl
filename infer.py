@@ -941,7 +941,7 @@ def main():
                 demo_key = next(iter(f["data"].keys()))
                 _ = f[f"data/{demo_key}/obs/agent_view"].shape
                 _ = f[f"data/{demo_key}/obs/JOINT_POS"].shape
-        except (OSError, KeyError):
+        except (OSError, KeyError, StopIteration):
             print(f"  [skip] {hdf5_path} — incompatible HDF5 format")
             continue
         try:

@@ -39,7 +39,9 @@ echo "=== uv: $(which uv) ==="
 # infer_haic.sh: marcelto/${OUTPUT_SUBDIR}_1dp_iter2_5400
 OUTPUT_SUBDIR=setup_table_multi_qwen
 # OUTPUT_SUBDIR=setup_table_reduced_multi_qwen_discounted
-DATASET_REPO_ID="marcelto/setup_table_iter3_single_qwen_1dp_iter3_2000"
+# DATASET_REPO_ID="marcelto/setup_table_iter3_single_qwen_1dp_iter3_2000"
+DATASET_REPO_ID="marcelto/setup_table_iter3_multi_qwen_1dp_iter3_3000"
+
 EXP_NAME="pi05_${DATASET_REPO_ID}"
 
 # Full finetune of pi05 on our custom DROID LeRobot dataset.
@@ -49,4 +51,5 @@ EXP_NAME="pi05_${DATASET_REPO_ID}"
 XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 uv run scripts/train.py pi05_droid_finetune \
     --exp-name="$EXP_NAME" \
     --resume \
+    --keep-train-state-only-latest \
     --data.repo_id="$DATASET_REPO_ID"

@@ -262,6 +262,25 @@ class QwenRewardModel(nn.Module):
 
     def _extract_pooled(self, inputs: dict, device: torch.device) -> torch.Tensor:
         """Run VLM forward and pool at last non-padding token. Returns (N, hidden)."""
+        # One-shot diagnostic: walk to the actual decoder layer and check the
+        # flag that GradientCheckpointingLayer.__call__ tests. This is what
+        # really matters; top-level / model-level flags can be True while
+        # individual layers still take the fallback path.
+        if self.training and not getattr(self, "_gc_diag_logged", False):
+            gc_top = getattr(self.qwen, "is_gradient_checkpointing", "?")
+            qmodel = getattr(self.qwen, "model", None)
+            qlm = getattr(qmodel, "language_model", None) if qmodel is not None else None
+            qlayers = getattr(qlm, "layers", None) if qlm is not None else None
+            layer0_gc = getattr(qlayers[0], "gradient_checkpointing", "?") if qlayers is not None else "no_layers"
+            layer0_train = getattr(qlayers[0], "training", "?") if qlayers is not None else "?"
+            layer0_func = type(getattr(qlayers[0], "_gradient_checkpointing_func", None)).__name__ if qlayers is not None else "?"
+            print(
+                f"[gc_diag] self.training={self.training} qwen.is_gc={gc_top} "
+                f"layer0.gc={layer0_gc} layer0.training={layer0_train} "
+                f"layer0._gc_func={layer0_func} n_layers={len(qlayers) if qlayers else '?'}",
+                flush=True,
+            )
+            self._gc_diag_logged = True
         outputs = self.qwen(
             **inputs,
             output_hidden_states=True,

@@ -42,25 +42,23 @@ echo "=== Node: $(hostname) ==="
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 echo "=== Python: $(which python) ==="
 
-CKPT=exp/2026-05-17_00-26-30_qwen_open_j77849/checkpoints/step003000.pt
-RUN_TAG=2026-05-17_00-26-30_qwen_open_j77849_3000
-OUTPUT_SUBDIR=setup_table_iter3_multi_qwen
-
+CKPT=exp/2026-05-17_00-26-30_qwen_open_j77850/checkpoints/step002000.pt
+RUN_TAG=2026-05-17_00-26-30_qwen_open_j77850_2000
+OUTPUT_SUBDIR=setup_table_iter3_single_qwen
 # Convert step runs in openpi's venv (matches the lerobot/datasets versions
 # that openpi will read with at train time — qwen310 has a newer `datasets`
 # that emits feature types openpi can't parse).
 OPENPI_PY="$REWARD_LEARNING_DIR/openpi/.venv/bin/python"
 
 
-# python infer.py \
-#     --ckpt "$CKPT" \
-#     --preferences_dir "${DATA_AM208}/preferences_setup,${DATA_ABHIJNYA}/demos/table_setup" \
-#     --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
-#     --task setup_table_reduced
+python infer.py \
+    --ckpt "$CKPT" \
+    --preferences_dir "${DATA_AM208}/preferences_setup,${DATA_ABHIJNYA}/demos/table_setup" \
+    --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}"
 
 "$OPENPI_PY" convert_custom_droid_to_lerobot.py \
     --args.scores_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
-    --args.repo_name "marcelto/${OUTPUT_SUBDIR}_1dp_iter3_3000" \
+    --args.repo_name "marcelto/${OUTPUT_SUBDIR}_1dp_iter3_2000" \
     --args.task_prompt "set up the table" \
     --args.score_type standardized \
     --args.decimal_places 1

@@ -26,7 +26,7 @@ import wandb
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from dataset import make_datasets, print_dataset_stats, load_anchors, load_cross_preferences, OpenPreferenceDataset
+from dataset import make_datasets, print_dataset_stats, load_anchors, load_cross_preferences, OpenPreferenceDataset, DummyPreferenceDataset
 from model import RewardModel, DiscountedRewardModel, bradley_terry_loss, bradley_terry_loss_regression, anchor_loss
 from flow_model import RewardModel as FlowRewardModel
 from qwen_model import QwenRewardModel
@@ -147,6 +147,14 @@ def parse_args():
     # Misc
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--num_workers", type=int, default=2)
+
+    # Debug: synthetic dataset (skip HDF5 / cross-prefs / anchors entirely).
+    p.add_argument("--debug_dummy", action="store_true",
+                   help="Use a tiny in-memory random dataset for fast DDP / OOM debugging")
+    p.add_argument("--debug_dummy_train", type=int, default=64,
+                   help="Number of dummy train pairs (only with --debug_dummy)")
+    p.add_argument("--debug_dummy_val", type=int, default=16,
+                   help="Number of dummy val pairs (only with --debug_dummy)")
     return p.parse_args()
 
 
@@ -359,9 +367,25 @@ def evaluate(model, val_loader, device, equal_weight, num_preferences, action_we
     return total_loss / max(n_batches, 1), acc, per_axis_acc
 
 
+def init_distributed():
+    """Initialize torch.distributed if launched via torchrun. Returns (is_ddp, rank, world_size, local_rank)."""
+    if "LOCAL_RANK" not in os.environ:
+        return False, 0, 1, 0
+    import torch.distributed as dist
+    local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank)
+    dist.init_process_group(backend="nccl", init_method="env://")
+    return True, dist.get_rank(), dist.get_world_size(), local_rank
+
+
 def main():
     args = parse_args()
-    set_seed(args.seed)
+
+    is_ddp, ddp_rank, ddp_world_size, ddp_local_rank = init_distributed()
+    is_main = (ddp_rank == 0)
+    # Different seed per rank so augmentation/sampling diverge,
+    # but DistributedSampler is itself seeded deterministically.
+    set_seed(args.seed + ddp_rank)
 
     run_tags = [args.model]
     if args.model == "flow" and args.ptp:
@@ -375,26 +399,40 @@ def main():
     if args.freeze_backbone:
         run_tags.append("frozen")
     slurm_id = os.environ.get("SLURM_JOB_ID")
-    run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "_" + "_".join(run_tags)
-    if slurm_id:
-        run_name = run_name + f"_j{slurm_id}"
+    # Build the run name on rank 0 then broadcast so all ranks share the same out_dir.
+    if is_main:
+        run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "_" + "_".join(run_tags)
+        if slurm_id:
+            run_name = run_name + f"_j{slurm_id}"
+    else:
+        run_name = None
+    if is_ddp:
+        import torch.distributed as dist
+        bcast = [run_name]
+        dist.broadcast_object_list(bcast, src=0)
+        run_name = bcast[0]
+
     args.out_dir = os.path.join(args.out_dir, run_name)
-    os.makedirs(args.out_dir, exist_ok=True)
     vis_dir = os.path.join(args.out_dir, "visualizations")
     ckpt_dir = os.path.join(args.out_dir, "checkpoints")
-    os.makedirs(vis_dir, exist_ok=True)
-    os.makedirs(ckpt_dir, exist_ok=True)
+    if is_main:
+        os.makedirs(args.out_dir, exist_ok=True)
+        os.makedirs(vis_dir, exist_ok=True)
+        os.makedirs(ckpt_dir, exist_ok=True)
+        with open(os.path.join(args.out_dir, "args.json"), "w") as f:
+            json.dump(vars(args), f, indent=2)
 
-    with open(os.path.join(args.out_dir, "args.json"), "w") as f:
-        json.dump(vars(args), f, indent=2)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}", flush=True)
+    if is_ddp:
+        device = torch.device("cuda", ddp_local_rank)
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if is_main:
+        print(f"Device: {device} | world_size={ddp_world_size} | rank={ddp_rank}", flush=True)
 
     # ------------------------------------------------------------------ #
     # Wandb
     # ------------------------------------------------------------------ #
-    use_wandb = not args.no_wandb
+    use_wandb = (not args.no_wandb) and is_main
     if use_wandb:
         wandb.init(
             project=args.wandb_project,
@@ -407,25 +445,45 @@ def main():
     # ------------------------------------------------------------------ #
     preference_keys = TASKS[args.task]
     preference_dirs = args.preferences_dir.split(",")
-    
-    train_ds, val_ds = make_datasets(
-        task=args.task,
-        preferences_dir=preference_dirs,
-        val_fraction=args.val_fraction,
-        stride=args.stride,
-        seq_len=args.seq_len,
-        img_size=(args.img_size, args.img_size),
-        seed=args.seed,
-        preload=args.preload,
-        action_chunk_size=args.action_chunk_size if args.ptp else 0,
-        preload_offsets=args.preload_offsets,
-        only_large=args.only_large,
-    )
 
-    print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}")
-    print_dataset_stats(train_ds, val_ds)
+    if args.debug_dummy:
+        if is_main:
+            print(f"[debug_dummy] Synthetic dataset: "
+                  f"{args.debug_dummy_train} train / {args.debug_dummy_val} val pairs", flush=True)
+        train_ds = DummyPreferenceDataset(
+            n_samples=args.debug_dummy_train,
+            seq_len=args.seq_len,
+            img_size=(args.img_size, args.img_size),
+            num_preferences=len(preference_keys),
+            seed=args.seed,
+        )
+        val_ds = DummyPreferenceDataset(
+            n_samples=args.debug_dummy_val,
+            seq_len=args.seq_len,
+            img_size=(args.img_size, args.img_size),
+            num_preferences=len(preference_keys),
+            seed=args.seed + 1,
+        )
+    else:
+        train_ds, val_ds = make_datasets(
+            task=args.task,
+            preferences_dir=preference_dirs,
+            val_fraction=args.val_fraction,
+            stride=args.stride,
+            seq_len=args.seq_len,
+            img_size=(args.img_size, args.img_size),
+            seed=args.seed,
+            preload=args.preload,
+            action_chunk_size=args.action_chunk_size if args.ptp else 0,
+            preload_offsets=args.preload_offsets,
+            only_large=args.only_large,
+        )
 
-    if args.cross_preferences_dir:
+        if is_main:
+            print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}")
+            print_dataset_stats(train_ds, val_ds)
+
+    if (not args.debug_dummy) and args.cross_preferences_dir:
         cross_dirs = [d.strip() for d in args.cross_preferences_dir.split(",") if d.strip()]
         valid_cross_dirs = []
         for cd in cross_dirs:
@@ -507,12 +565,14 @@ def main():
                       f"mean={arr.mean():.1f}  median={np.median(arr):.1f}  std={arr.std():.1f}")
             train_ds.samples.extend(cross_samples)
 
-    all_paths = set()
-    for s in train_ds.samples:
-        all_paths.add(s["hdf5_a"])
-        all_paths.add(s["hdf5_b"])
-    print(f"Total train pairs: {len(train_ds.samples)}  "
-          f"({len(train_ds.samples) * 2} trajectory slots, {len(all_paths)} unique trajectories)")
+    if not args.debug_dummy:
+        all_paths = set()
+        for s in train_ds.samples:
+            all_paths.add(s["hdf5_a"])
+            all_paths.add(s["hdf5_b"])
+        if is_main:
+            print(f"Total train pairs: {len(train_ds.samples)}  "
+                  f"({len(train_ds.samples) * 2} trajectory slots, {len(all_paths)} unique trajectories)")
 
     # Log preload times to wandb
     if use_wandb and args.preload:
@@ -533,7 +593,7 @@ def main():
         wandb.log(preload_log)
 
     anchor_entries = []
-    if args.anchor:
+    if args.anchor and not args.debug_dummy:
         if not args.anchors_file:
             raise ValueError("--anchor requires --anchors_file")
         anchor_entries = load_anchors(
@@ -545,21 +605,34 @@ def main():
             action_chunk_size=args.action_chunk_size if args.ptp else 0,
         )
 
-    # Wrap datasets for qwen_open (per-axis samples)
+    # Wrap datasets for qwen_open (per-axis samples).
+    # When equal_weight == 0, equal-labeled (0.5) axes contribute no gradient,
+    # so we drop them to keep DDP backward well-defined on every per-rank batch.
     if args.model in ("qwen_open", "qwen_open_discounted"):
-        train_ds = OpenPreferenceDataset(train_ds, preference_keys)
-        val_ds = OpenPreferenceDataset(val_ds, preference_keys)
-        print(f"[{args.model}] Expanded to {len(train_ds)} train / {len(val_ds)} val per-axis samples")
+        skip_equal = (args.equal_weight == 0.0)
+        train_ds = OpenPreferenceDataset(train_ds, preference_keys, skip_equal=skip_equal)
+        val_ds = OpenPreferenceDataset(val_ds, preference_keys, skip_equal=skip_equal)
+        print(f"[{args.model}] Expanded to {len(train_ds)} train / {len(val_ds)} val per-axis samples (skip_equal={skip_equal})")
         preference_keys = ["overall"]
+
+    if is_ddp:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(
+            train_ds, num_replicas=ddp_world_size, rank=ddp_rank,
+            shuffle=True, seed=args.seed, drop_last=True,
+        )
+    else:
+        train_sampler = None
 
     train_loader = DataLoader(
         train_ds,
         batch_size=args.batch_size,
-        shuffle=True,
+        sampler=train_sampler,
+        shuffle=(train_sampler is None),
         num_workers=args.num_workers,
         pin_memory=(device.type == "cuda"),
         collate_fn=make_success_collate_fn(args.success_connection_rate, len(preference_keys)),
     )
+    # Validation runs on rank 0 only, so keep it non-distributed.
     val_loader = DataLoader(
         val_ds,
         batch_size=args.batch_size,
@@ -626,9 +699,11 @@ def main():
         ).to(device)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Model parameters: {n_params:,}")
+    if is_main:
+        print(f"Model parameters: {n_params:,}")
 
-    # Separate backbone params for optional lower lr
+    # Separate backbone params for optional lower lr (use the unwrapped model to
+    # iterate parameters before wrapping in DDP).
     if args.model in ("qwen", "qwen_lora", "qwen_open", "qwen_discounted", "qwen_open_discounted"):
         trainable_params = [p for p in model.parameters() if p.requires_grad]
         param_groups = [{"params": trainable_params, "lr": args.lr}]
@@ -643,6 +718,58 @@ def main():
     optimizer = torch.optim.AdamW(
         param_groups, weight_decay=args.weight_decay
     )
+
+    # Wrap in DDP after optimizer captures the underlying parameters.
+    #
+    # Critical flags:
+    # - static_graph=True: required for gradient checkpointing (use_reentrant=False)
+    #   to actually save memory under DDP. Without it, DDP's autograd hooks
+    #   prevent the checkpointing path from being taken, and the model falls
+    #   back to saving every layer's activations — peak memory jumps by
+    #   ~36 GiB for the 4B Qwen model on batch=32. static_graph requires the
+    #   autograd graph to be identical every iteration (true for our model).
+    # - find_unused_parameters=False: with static_graph=True this is the right
+    #   default. All trainable params (MLP, LLM, reward heads) are touched
+    #   every forward, so DDP knows what to wait for.
+    # - gradient_as_bucket_view=True: reuses gradient storage as bucket views.
+    # - broadcast_buffers=False: no running-stat buffers to sync.
+    unwrapped_model = model
+    if is_ddp:
+        model = torch.nn.parallel.DistributedDataParallel(
+            model,
+            device_ids=[ddp_local_rank],
+            output_device=ddp_local_rank,
+            find_unused_parameters=False,
+            broadcast_buffers=False,
+            gradient_as_bucket_view=True,
+            static_graph=True,
+        )
+        unwrapped_model = model.module
+
+    # CRITICAL: HF's `from_pretrained` leaves the loaded model in eval mode,
+    # which propagates `training=False` to every submodule including the
+    # decoder layers. GradientCheckpointingLayer.__call__ tests
+    # `self.gradient_checkpointing and self.training` on the LAYER; if the
+    # layer is in eval mode it silently falls through to the non-checkpointing
+    # path, blowing up activation memory by ~36 GiB on the 4B Qwen model.
+    #
+    # On single-GPU this is masked by the pre-train evaluate() call (which
+    # runs on is_main=True and ends with `model.train()`, fixing the state).
+    # Under DDP ranks 1-3 that branch is skipped, so the bug only shows up
+    # in multi-GPU runs. Calling .train() here ensures all ranks enter the
+    # training loop with layer.training=True so checkpointing actually fires.
+    model.train()
+
+    # Diagnostic: confirm layer-level gradient_checkpointing flag + training
+    # state after the forced .train(). Print on every rank.
+    if isinstance(unwrapped_model, QwenRewardModel):
+        qmodel = getattr(unwrapped_model.qwen, "model", None)
+        qlm = getattr(qmodel, "language_model", None) if qmodel is not None else None
+        qlayers = getattr(qlm, "layers", None) if qlm is not None else None
+        l0_gc = getattr(qlayers[0], "gradient_checkpointing", "?") if qlayers is not None else "no_layers"
+        l0_tr = getattr(qlayers[0], "training", "?") if qlayers is not None else "?"
+        rank_str = str(ddp_rank) if is_ddp else "single"
+        print(f"[post_ddp_diag rank={rank_str}] layer0.gc={l0_gc} layer0.training={l0_tr} unwrapped.training={unwrapped_model.training}", flush=True)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs * len(train_loader)
     )
@@ -661,23 +788,26 @@ def main():
     reward_corr_buffer = collections.deque(maxlen=_corr_buf_maxlen)
     global_step = 0
 
-    # ---- pre-training baseline ----
-    val_loss, val_acc, val_axis_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
-    val_losses.append(val_loss)
-    val_accs.append(val_acc.tolist())
-    acc_str = " | ".join(f"{k}: {v:.2f}" for k, v in zip(preference_keys, val_acc))
-    print(f"[Pre-train] Loss {val_loss:.4f} | {acc_str}")
-    if val_axis_acc:
-        ax_str = " | ".join(f"{k}: {v:.2f}" for k, v in sorted(val_axis_acc.items()))
-        print(f"[Pre-train per-axis] {ax_str}")
+    # ---- pre-training baseline (rank 0 only) ----
+    if is_main:
+        val_loss, val_acc, val_axis_acc = evaluate(unwrapped_model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
+        val_losses.append(val_loss)
+        val_accs.append(val_acc.tolist())
+        acc_str = " | ".join(f"{k}: {v:.2f}" for k, v in zip(preference_keys, val_acc))
+        print(f"[Pre-train] Loss {val_loss:.4f} | {acc_str}")
+        if val_axis_acc:
+            ax_str = " | ".join(f"{k}: {v:.2f}" for k, v in sorted(val_axis_acc.items()))
+            print(f"[Pre-train per-axis] {ax_str}")
 
     train_axis_correct: dict[str, int] = collections.defaultdict(int)
     train_axis_labeled: dict[str, int] = collections.defaultdict(int)
 
-    epoch_pbar = tqdm(range(args.epochs), desc="Epochs")
+    epoch_pbar = tqdm(range(args.epochs), desc="Epochs", disable=not is_main)
     for epoch in epoch_pbar:
+        if train_sampler is not None:
+            train_sampler.set_epoch(epoch)
         t_data_end = time.perf_counter()
-        for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}", leave=False):
+        for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}", leave=False, disable=not is_main):
             t_data = time.perf_counter() - t_data_end
 
             t0 = time.perf_counter()
@@ -686,22 +816,24 @@ def main():
 
             t0 = time.perf_counter()
             optimizer.zero_grad()
-            if isinstance(model, FlowRewardModel):
+            if isinstance(unwrapped_model, FlowRewardModel):
                 obs_a = make_obs(batch["traj_a"], device, augment=True)
                 obs_b = make_obs(batch["traj_b"], device, augment=True)
                 t_transfer = time.perf_counter() - t0
                 t0 = time.perf_counter()
-                cls_a, frame_tokens_a = model.encode(obs_a)
-                cls_b, frame_tokens_b = model.encode(obs_b)
+                # FlowRewardModel uses non-forward entry points; DDP wraps .forward only.
+                # Use the unwrapped model and rely on autograd hooks across all ranks.
+                cls_a, frame_tokens_a = unwrapped_model.encode(obs_a)
+                cls_b, frame_tokens_b = unwrapped_model.encode(obs_b)
                 t_forward = time.perf_counter() - t0
                 t0 = time.perf_counter()
-                loss, per_dim_correct, per_dim_labeled = model.bradley_terry_flow_matching_loss(cls_a, cls_b, labels)
+                loss, per_dim_correct, per_dim_labeled = unwrapped_model.bradley_terry_flow_matching_loss(cls_a, cls_b, labels)
                 if args.ptp:
                     action_chunks_a = batch["traj_a"]["action_chunks"].to(device)
                     action_chunks_b = batch["traj_b"]["action_chunks"].to(device)
                     mask_a = obs_a["padding_mask"]
                     mask_b = obs_b["padding_mask"]
-                    action_loss = model.action_flow_loss(
+                    action_loss = unwrapped_model.action_flow_loss(
                         frame_tokens_a, action_chunks_a, mask_a,
                         frame_tokens_b, action_chunks_b, mask_b,
                     )
@@ -716,7 +848,7 @@ def main():
                 t_transfer = time.perf_counter() - t0
                 t0 = time.perf_counter()
                 axis_labels = batch.get("axis_label")  # list[str] or None
-                if isinstance(model, QwenRewardModel):
+                if isinstance(unwrapped_model, QwenRewardModel):
                     r_a = model(tp_a, wr_a, mask_a, axis_labels=axis_labels)
                     r_b = model(tp_b, wr_b, mask_b, axis_labels=axis_labels)
                 else:
@@ -740,10 +872,10 @@ def main():
 
             # --- accumulate rewards into rolling buffer for correlation logging ---
             with torch.no_grad():
-                if isinstance(model, FlowRewardModel):
+                if isinstance(unwrapped_model, FlowRewardModel):
                     # Use a single cheap ODE sample (n_steps=4) to avoid slowing training.
-                    ra_buf = model.sample_reward(cls_a, n_samples=1, n_steps=4).cpu().numpy()
-                    rb_buf = model.sample_reward(cls_b, n_samples=1, n_steps=4).cpu().numpy()
+                    ra_buf = unwrapped_model.sample_reward(cls_a, n_samples=1, n_steps=4).cpu().numpy()
+                    rb_buf = unwrapped_model.sample_reward(cls_b, n_samples=1, n_steps=4).cpu().numpy()
                 else:
                     ra_buf = r_a.detach().cpu().numpy()
                     rb_buf = r_b.detach().cpu().numpy()
@@ -756,7 +888,7 @@ def main():
                 anc_loss = torch.zeros(1, device=device)
                 for entry in anchor_entries:
                     traj = entry["traj"]
-                    if isinstance(model, FlowRewardModel):
+                    if isinstance(unwrapped_model, FlowRewardModel):
                         obs_anc = {
                             "third_person": traj["third_person"].unsqueeze(0).to(device),
                             "wrist": traj["wrist"].unsqueeze(0).to(device),
@@ -784,16 +916,23 @@ def main():
             global_step += 1
             t_data_end = time.perf_counter()
 
-            # ---- logging ----
-            if global_step % args.log_interval == 0:
+            # ---- logging (rank 0 only) ----
+            if is_main and global_step % args.log_interval == 0:
                 mean_acc = per_dim_acc.mean().item()
                 epoch_pbar.set_postfix(loss=f"{loss.item():.4f}", acc=f"{mean_acc:.3f}")
+                # Peak GPU memory for this log window (then reset the counter).
+                peak_mem_gib = 0.0
+                if device.type == "cuda":
+                    peak_mem_gib = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
+                    torch.cuda.reset_peak_memory_stats(device)
                 print(
                     f"Epoch {epoch+1:3d} | Step {global_step:5d} | "
                     f"Loss {loss.item():.4f} | Acc {mean_acc:.3f} | "
                     f"LR {scheduler.get_last_lr()[0]:.2e} | "
+                    f"PeakMem {peak_mem_gib:.2f} GiB | "
                     f"data={t_data:.2f}s  transfer={t_transfer:.2f}s  fwd={t_forward:.2f}s  bwd={t_backward:.2f}s"
-                    + (f"  pil={model._last_prep_time:.2f}s" if hasattr(model, "_last_prep_time") else "")
+                    + (f"  pil={unwrapped_model._last_prep_time:.2f}s" if hasattr(unwrapped_model, "_last_prep_time") else ""),
+                    flush=True,
                 )
                 if use_wandb:
                     timing_dict = {
@@ -801,9 +940,10 @@ def main():
                         "timing/gpu_transfer": t_transfer,
                         "timing/forward": t_forward,
                         "timing/backward": t_backward,
+                        "mem/peak_gib": peak_mem_gib,
                     }
-                    if hasattr(model, "_last_prep_time"):
-                        timing_dict["timing/pil_processor"] = model._last_prep_time
+                    if hasattr(unwrapped_model, "_last_prep_time"):
+                        timing_dict["timing/pil_processor"] = unwrapped_model._last_prep_time
                     wandb.log(timing_dict, step=global_step)
                 if use_wandb:
                     log_dict = {
@@ -820,7 +960,7 @@ def main():
                                 )
                         train_axis_correct.clear()
                         train_axis_labeled.clear()
-                    if args.ptp and isinstance(model, FlowRewardModel):
+                    if args.ptp and isinstance(unwrapped_model, FlowRewardModel):
                         log_dict["train/action_loss"] = action_loss.item()
                     if anchor_entries:
                         log_dict["train/anchor_loss"] = anc_loss.item() / len(anchor_entries)
@@ -834,9 +974,9 @@ def main():
                         plt.close(corr_fig)
                     wandb.log(log_dict, step=global_step)
 
-            # ---- validation ----
-            if global_step % args.eval_interval == 0:
-                val_loss, val_acc, val_axis_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
+            # ---- validation (rank 0 only) ----
+            if is_main and global_step % args.eval_interval == 0:
+                val_loss, val_acc, val_axis_acc = evaluate(unwrapped_model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
                 val_losses.append(val_loss)
                 val_accs.append(val_acc.tolist())
                 mean_val_acc = val_acc.mean()
@@ -861,7 +1001,7 @@ def main():
                 # ---- axis-sensitivity probe (open models only) ----
                 if args.model in ("qwen_open", "qwen_open_discounted"):
                     probe_mat, probe_axes = axis_sensitivity_probe(
-                        model, val_loader, device, TASKS[args.task]
+                        unwrapped_model, val_loader, device, TASKS[args.task]
                     )
                     if probe_mat is not None:
                         spread_per_sample = probe_mat.std(axis=1)
@@ -890,37 +1030,37 @@ def main():
                     preference_keys=preference_keys,
                 )
 
-            # ---- visualization + wandb val logging ----
-            if global_step % args.vis_interval == 0:
-                val_loss_vis, val_acc_vis, val_axis_acc_vis = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
+            # ---- visualization + wandb val logging (rank 0 only) ----
+            if is_main and global_step % args.vis_interval == 0:
+                val_loss_vis, val_acc_vis, val_axis_acc_vis = evaluate(unwrapped_model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
                 mean_val_acc_vis = val_acc_vis.mean()
                 acc_str_vis = " | ".join(f"{k}: {v:.2f}" for k, v in zip(preference_keys, val_acc_vis))
                 print(f"  [Vis/Val] Step {global_step:5d} | Loss {val_loss_vis:.4f} | Mean acc {mean_val_acc_vis:.3f} | {acc_str_vis}")
 
                 vis_step_dir = os.path.join(vis_dir, f"step{global_step:06d}")
                 n_vis_val = visualize_validation_batch(
-                    model, val_ds, device,
+                    unwrapped_model, val_ds, device,
                     out_dir=os.path.join(vis_step_dir, "val"),
                     preference_keys=preference_keys,
                     max_samples=args.max_vis_samples,
                     step=global_step,
                 )
                 n_vis_train = visualize_validation_batch(
-                    model, train_ds, device,
+                    unwrapped_model, train_ds, device,
                     out_dir=os.path.join(vis_step_dir, "train"),
                     preference_keys=preference_keys,
                     max_samples=args.max_vis_samples,
                     step=global_step,
                 )
                 top_bottom_train_mp4s, uniform_train_mp4s = visualize_top_bottom_trajectories(
-                    model, train_ds, device,
+                    unwrapped_model, train_ds, device,
                     out_dir=os.path.join(vis_step_dir, "top_bottom_train"),
                     preference_keys=preference_keys,
                     n=5, n_uniform=10,
                     step=global_step,
                 )
                 top_bottom_val_mp4s, uniform_val_mp4s = visualize_top_bottom_trajectories(
-                    model, val_ds, device,
+                    unwrapped_model, val_ds, device,
                     out_dir=os.path.join(vis_step_dir, "top_bottom_val"),
                     preference_keys=preference_keys,
                     n=5, n_uniform=10,
@@ -944,18 +1084,18 @@ def main():
                         **{f"uniform_val/{k}": wandb.Video(p, format="mp4") for k, p in zip(preference_keys, uniform_val_mp4s)},
                     }, step=global_step)
 
-            # ---- small visualization (pair plots only, no ranking) ----
-            if global_step % args.small_vis_interval == 0:
+            # ---- small visualization (pair plots only, no ranking; rank 0 only) ----
+            if is_main and global_step % args.small_vis_interval == 0:
                 small_vis_dir = os.path.join(vis_dir, f"step{global_step:06d}_small")
                 n_vis_val = visualize_validation_batch(
-                    model, val_ds, device,
+                    unwrapped_model, val_ds, device,
                     out_dir=os.path.join(small_vis_dir, "val"),
                     preference_keys=preference_keys,
                     max_samples=args.small_vis_max_samples,
                     step=global_step,
                 )
                 n_vis_train = visualize_validation_batch(
-                    model, train_ds, device,
+                    unwrapped_model, train_ds, device,
                     out_dir=os.path.join(small_vis_dir, "train"),
                     preference_keys=preference_keys,
                     max_samples=args.small_vis_max_samples,
@@ -970,10 +1110,10 @@ def main():
                         **{f"small_train/video_{i}": wandb.Video(os.path.join(small_vis_dir, "train", f), format="mp4") for i, f in enumerate(train_mp4s)},
                     }, step=global_step)
 
-            # ---- checkpoint ----
-            if global_step % args.save_interval == 0:
+            # ---- checkpoint (rank 0 only) ----
+            if is_main and global_step % args.save_interval == 0:
                 ckpt_path = os.path.join(ckpt_dir, f"step{global_step:06d}.pt")
-                model_sd = model.get_checkpoint_state_dict() if isinstance(model, QwenRewardModel) else model.state_dict()
+                model_sd = unwrapped_model.get_checkpoint_state_dict() if isinstance(unwrapped_model, QwenRewardModel) else unwrapped_model.state_dict()
                 torch.save({
                     "step": global_step,
                     "model": model_sd,
@@ -982,49 +1122,55 @@ def main():
                 }, ckpt_path)
                 print(f"  [Ckpt] Saved → {ckpt_path}")
 
-    # ---- final eval + curves ----
-    val_loss, val_acc, val_axis_acc = evaluate(model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
-    print("\nFinal validation:")
-    for k, v in zip(preference_keys, val_acc):
-        print(f"  {k}: {v:.3f}")
-    if val_axis_acc:
-        print("Final validation per-axis:")
-        for ax in sorted(val_axis_acc):
-            print(f"  {ax}: {val_axis_acc[ax]:.3f}")
+    # ---- final eval + curves (rank 0 only) ----
+    if is_main:
+        val_loss, val_acc, val_axis_acc = evaluate(unwrapped_model, val_loader, device, args.equal_weight, len(preference_keys), getattr(args, "action_weight", 0.0), getattr(args, "regression", False))
+        print("\nFinal validation:")
+        for k, v in zip(preference_keys, val_acc):
+            print(f"  {k}: {v:.3f}")
+        if val_axis_acc:
+            print("Final validation per-axis:")
+            for ax in sorted(val_axis_acc):
+                print(f"  {ax}: {val_axis_acc[ax]:.3f}")
 
-    plot_training_curves(
-        train_losses, train_accs, val_losses, val_accs,
-        out_path=os.path.join(args.out_dir, "training_curves.png"),
-        preference_keys=preference_keys,
-    )
+        plot_training_curves(
+            train_losses, train_accs, val_losses, val_accs,
+            out_path=os.path.join(args.out_dir, "training_curves.png"),
+            preference_keys=preference_keys,
+        )
 
-    # Final visualizations
-    visualize_validation_batch(
-        model, val_ds, device,
-        out_dir=os.path.join(vis_dir, "final", "val"),
-        preference_keys=preference_keys,
-        max_samples=len(val_ds),
-        step=global_step,
-    )
-    visualize_validation_batch(
-        model, train_ds, device,
-        out_dir=os.path.join(vis_dir, "final", "train"),
-        preference_keys=preference_keys,
-        max_samples=args.max_vis_samples,
-        step=global_step,
-    )
+        # Final visualizations
+        visualize_validation_batch(
+            unwrapped_model, val_ds, device,
+            out_dir=os.path.join(vis_dir, "final", "val"),
+            preference_keys=preference_keys,
+            max_samples=len(val_ds),
+            step=global_step,
+        )
+        visualize_validation_batch(
+            unwrapped_model, train_ds, device,
+            out_dir=os.path.join(vis_dir, "final", "train"),
+            preference_keys=preference_keys,
+            max_samples=args.max_vis_samples,
+            step=global_step,
+        )
 
-    # Final checkpoint
-    model_sd = model.get_checkpoint_state_dict() if isinstance(model, QwenRewardModel) else model.state_dict()
-    torch.save({
-        "step": global_step,
-        "model": model_sd,
-        "optimizer": optimizer.state_dict(),
-        "args": vars(args),
-    }, os.path.join(ckpt_dir, "final.pt"))
-    if use_wandb:
-        wandb.finish()
-    print(f"\nDone. Outputs in {args.out_dir}")
+        # Final checkpoint
+        model_sd = unwrapped_model.get_checkpoint_state_dict() if isinstance(unwrapped_model, QwenRewardModel) else unwrapped_model.state_dict()
+        torch.save({
+            "step": global_step,
+            "model": model_sd,
+            "optimizer": optimizer.state_dict(),
+            "args": vars(args),
+        }, os.path.join(ckpt_dir, "final.pt"))
+        if use_wandb:
+            wandb.finish()
+        print(f"\nDone. Outputs in {args.out_dir}")
+
+    if is_ddp:
+        import torch.distributed as dist
+        dist.barrier()
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":

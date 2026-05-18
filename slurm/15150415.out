@@ -1,885 +1,0 @@
-wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /iris/u/marcelto/.netrc.
-wandb: Currently logged in as: marcelto (marcelto-stanford-university) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
-wandb: setting up run vq7j7xzq
-wandb: Tracking run with wandb version 0.25.1
-wandb: Run data is saved locally in /iris/u/marcelto/reward_learning/wandb/run-20260412_190013-vq7j7xzq
-wandb: Run `wandb offline` to turn off syncing.
-wandb: Syncing run 2026-04-12_19-00-11
-wandb: ⭐️ View project at https://wandb.ai/marcelto-stanford-university/reward_learning
-wandb: 🚀 View run at https://wandb.ai/marcelto-stanford-university/reward_learning/runs/vq7j7xzq
-/iris/u/marcelto/reward_learning/.venv/lib/python3.9/site-packages/torch/nn/modules/transformer.py:306: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
-  warnings.warn(f"enable_nested_tensor is True, but self.use_nested_tensor is False because {why_not_sparsity_fast_path}")
-Device: cuda
-Task: cube_in_three_bowls | Keys: ['Fast', 'Smooth', 'Blue bowl', 'Orange bowl', 'Yellow bowl']
-Train: 42 sessions, Val: 10 sessions
-Train size: 40, Val size: 10
-Model parameters: 12,102,341
-[Pre-train] Loss 0.6952 | Fast: 0.50 | Smooth: 0.60 | Blue bowl: 0.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-Epochs:   0%|          | 0/100 [00:00<?, ?it/s]
-Epoch 1:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 1:  50%|█████     | 1/2 [01:25<01:25, 85.55s/it][A
-Epoch 1: 100%|██████████| 2/2 [01:59<00:00, 55.01s/it][A
-                                                      [AEpochs:   1%|          | 1/100 [01:59<3:16:45, 119.25s/it]  [Vis/Val] Step     1 | Loss 0.6911 | Mean acc 0.700 | Fast: 0.40 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000001
-  [Vis/Val] Step     2 | Loss 0.6916 | Mean acc 0.640 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000002
-
-Epoch 2:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 2:  50%|█████     | 1/2 [01:03<01:03, 63.51s/it][A
-Epoch 2: 100%|██████████| 2/2 [01:36<00:00, 45.58s/it][A
-                                                      [AEpochs:   2%|▏         | 2/100 [03:35<2:53:01, 105.94s/it]  [Vis/Val] Step     3 | Loss 0.6925 | Mean acc 0.640 | Fast: 0.40 | Smooth: 0.30 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000003
-  [Vis/Val] Step     4 | Loss 0.6929 | Mean acc 0.580 | Fast: 0.50 | Smooth: 0.40 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000004
-
-Epoch 3:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 3:  50%|█████     | 1/2 [01:03<01:03, 63.41s/it][A
-Epoch 3: 100%|██████████| 2/2 [01:36<00:00, 45.64s/it][A
-                                                      [AEpochs:   3%|▎         | 3/100 [05:12<2:44:25, 101.70s/it]  [Vis/Val] Step     5 | Loss 0.6921 | Mean acc 0.610 | Fast: 0.40 | Smooth: 0.40 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000005
-  [Vis/Val] Step     6 | Loss 0.6887 | Mean acc 0.650 | Fast: 0.60 | Smooth: 0.40 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000006
-
-Epoch 4:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 4:  50%|█████     | 1/2 [01:03<01:03, 63.46s/it][A
-Epoch 4: 100%|██████████| 2/2 [01:36<00:00, 45.82s/it][A
-                                                      [AEpochs:   4%|▍         | 4/100 [06:49<2:39:46, 99.86s/it]   [Vis/Val] Step     7 | Loss 0.6881 | Mean acc 0.650 | Fast: 0.60 | Smooth: 0.40 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000007
-  [Vis/Val] Step     8 | Loss 0.6899 | Mean acc 0.670 | Fast: 0.70 | Smooth: 0.40 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000008
-
-Epoch 5:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 5:  50%|█████     | 1/2 [01:04<01:04, 64.45s/it][AEpochs:   4%|▍         | 4/100 [07:54<2:39:46, 99.86s/it, acc=0.775, loss=0.6105]
-Epoch 5: 100%|██████████| 2/2 [01:37<00:00, 46.01s/it][A
-                                                      [AEpochs:   5%|▌         | 5/100 [08:27<2:36:50, 99.05s/it, acc=0.775, loss=0.6105]  [Vis/Val] Step     9 | Loss 0.6933 | Mean acc 0.670 | Fast: 0.70 | Smooth: 0.40 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000009
-Epoch   5 | Step    10 | Loss 0.6105 | Acc 0.775 | LR 9.94e-05
-  [Vis/Val] Step    10 | Loss 0.6946 | Mean acc 0.540 | Fast: 0.40 | Smooth: 0.30 | Blue bowl: 0.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000010
-
-Epoch 6:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 6:  50%|█████     | 1/2 [01:02<01:02, 62.78s/it][A
-Epoch 6: 100%|██████████| 2/2 [01:35<00:00, 45.32s/it][A
-                                                      [AEpochs:   6%|▌         | 6/100 [10:03<2:33:31, 98.00s/it, acc=0.775, loss=0.6105]  [Vis/Val] Step    11 | Loss 0.6921 | Mean acc 0.650 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000011
-  [Vis/Val] Step    12 | Loss 0.6898 | Mean acc 0.750 | Fast: 0.60 | Smooth: 0.40 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000012
-
-Epoch 7:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 7:  50%|█████     | 1/2 [01:02<01:02, 62.87s/it][A
-Epoch 7: 100%|██████████| 2/2 [01:36<00:00, 45.50s/it][A
-                                                      [AEpochs:   7%|▋         | 7/100 [11:39<2:31:00, 97.43s/it, acc=0.775, loss=0.6105]  [Vis/Val] Step    13 | Loss 0.6897 | Mean acc 0.730 | Fast: 0.60 | Smooth: 0.30 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000013
-  [Vis/Val] Step    14 | Loss 0.6857 | Mean acc 0.750 | Fast: 0.60 | Smooth: 0.40 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000014
-
-Epoch 8:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 8:  50%|█████     | 1/2 [01:03<01:03, 63.20s/it][A
-Epoch 8: 100%|██████████| 2/2 [01:36<00:00, 45.70s/it][A
-                                                      [AEpochs:   8%|▊         | 8/100 [13:16<2:29:02, 97.20s/it, acc=0.775, loss=0.6105]  [Vis/Val] Step    15 | Loss 0.6773 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000015
-  [Vis/Val] Step    16 | Loss 0.6738 | Mean acc 0.650 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000016
-
-Epoch 9:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 9:  50%|█████     | 1/2 [01:03<01:03, 63.13s/it][A
-Epoch 9: 100%|██████████| 2/2 [01:36<00:00, 45.73s/it][A
-                                                      [AEpochs:   9%|▉         | 9/100 [14:52<2:27:12, 97.06s/it, acc=0.775, loss=0.6105]  [Vis/Val] Step    17 | Loss 0.6686 | Mean acc 0.690 | Fast: 0.60 | Smooth: 0.60 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000017
-  [Vis/Val] Step    18 | Loss 0.6639 | Mean acc 0.670 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000018
-
-Epoch 10:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 10:  50%|█████     | 1/2 [01:03<01:03, 63.55s/it][AEpochs:   9%|▉         | 9/100 [15:56<2:27:12, 97.06s/it, acc=0.445, loss=0.6712]
-Epoch 10: 100%|██████████| 2/2 [01:36<00:00, 45.65s/it][A
-                                                       [AEpochs:  10%|█         | 10/100 [16:29<2:25:25, 96.96s/it, acc=0.445, loss=0.6712]  [Vis/Val] Step    19 | Loss 0.6574 | Mean acc 0.670 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000019
-Epoch  10 | Step    20 | Loss 0.6712 | Acc 0.445 | LR 9.76e-05
-  [Vis/Val] Step    20 | Loss 0.6501 | Mean acc 0.670 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000020
-
-Epoch 11:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 11:  50%|█████     | 1/2 [01:03<01:03, 63.09s/it][A
-Epoch 11: 100%|██████████| 2/2 [01:36<00:00, 45.69s/it][A
-                                                       [AEpochs:  11%|█         | 11/100 [18:06<2:23:41, 96.87s/it, acc=0.445, loss=0.6712]  [Vis/Val] Step    21 | Loss 0.6430 | Mean acc 0.670 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000021
-  [Vis/Val] Step    22 | Loss 0.6388 | Mean acc 0.650 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000022
-
-Epoch 12:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 12:  50%|█████     | 1/2 [01:04<01:04, 64.17s/it][A
-Epoch 12: 100%|██████████| 2/2 [01:38<00:00, 46.63s/it][A
-                                                       [AEpochs:  12%|█▏        | 12/100 [19:44<2:22:50, 97.39s/it, acc=0.445, loss=0.6712]  [Vis/Val] Step    23 | Loss 0.6353 | Mean acc 0.650 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000023
-  [Vis/Val] Step    24 | Loss 0.6282 | Mean acc 0.750 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000024
-
-Epoch 13:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 13:  50%|█████     | 1/2 [01:03<01:03, 63.40s/it][A
-Epoch 13: 100%|██████████| 2/2 [01:37<00:00, 45.98s/it][A
-                                                       [AEpochs:  13%|█▎        | 13/100 [21:22<2:21:09, 97.35s/it, acc=0.445, loss=0.6712]  [Vis/Val] Step    25 | Loss 0.6168 | Mean acc 0.700 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000025
-  [Vis/Val] Step    26 | Loss 0.6034 | Mean acc 0.700 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000026
-
-Epoch 14:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 14:  50%|█████     | 1/2 [01:02<01:02, 62.99s/it][A
-Epoch 14: 100%|██████████| 2/2 [01:36<00:00, 45.48s/it][A
-                                                       [AEpochs:  14%|█▍        | 14/100 [22:58<2:19:03, 97.02s/it, acc=0.445, loss=0.6712]  [Vis/Val] Step    27 | Loss 0.5923 | Mean acc 0.700 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000027
-  [Vis/Val] Step    28 | Loss 0.5832 | Mean acc 0.700 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000028
-
-Epoch 15:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 15:  50%|█████     | 1/2 [01:03<01:03, 63.05s/it][AEpochs:  14%|█▍        | 14/100 [24:01<2:19:03, 97.02s/it, acc=0.550, loss=0.5383]
-Epoch 15: 100%|██████████| 2/2 [01:36<00:00, 45.71s/it][A
-                                                       [AEpochs:  15%|█▌        | 15/100 [24:35<2:17:18, 96.92s/it, acc=0.550, loss=0.5383]  [Vis/Val] Step    29 | Loss 0.5800 | Mean acc 0.720 | Fast: 0.50 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000029
-Epoch  15 | Step    30 | Loss 0.5383 | Acc 0.550 | LR 9.46e-05
-  [Vis/Val] Step    30 | Loss 0.5736 | Mean acc 0.700 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000030
-
-Epoch 16:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 16:  50%|█████     | 1/2 [01:02<01:02, 62.20s/it][A
-Epoch 16: 100%|██████████| 2/2 [01:35<00:00, 45.39s/it][A
-                                                       [AEpochs:  16%|█▌        | 16/100 [26:10<2:15:15, 96.62s/it, acc=0.550, loss=0.5383]  [Vis/Val] Step    31 | Loss 0.5735 | Mean acc 0.750 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000031
-  [Vis/Val] Step    32 | Loss 0.5712 | Mean acc 0.750 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000032
-
-Epoch 17:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 17:  50%|█████     | 1/2 [01:02<01:02, 62.49s/it][A
-Epoch 17: 100%|██████████| 2/2 [01:35<00:00, 45.16s/it][A
-                                                       [AEpochs:  17%|█▋        | 17/100 [27:46<2:13:13, 96.31s/it, acc=0.550, loss=0.5383]  [Vis/Val] Step    33 | Loss 0.5910 | Mean acc 0.750 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000033
-  [Vis/Val] Step    34 | Loss 0.6088 | Mean acc 0.650 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000034
-
-Epoch 18:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 18:  50%|█████     | 1/2 [01:02<01:02, 62.55s/it][A
-Epoch 18: 100%|██████████| 2/2 [01:35<00:00, 45.02s/it][A
-                                                       [AEpochs:  18%|█▊        | 18/100 [29:21<2:11:14, 96.02s/it, acc=0.550, loss=0.5383]  [Vis/Val] Step    35 | Loss 0.6222 | Mean acc 0.650 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000035
-  [Vis/Val] Step    36 | Loss 0.6388 | Mean acc 0.650 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000036
-
-Epoch 19:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 19:  50%|█████     | 1/2 [01:02<01:02, 62.18s/it][A
-Epoch 19: 100%|██████████| 2/2 [01:34<00:00, 44.75s/it][A
-                                                       [AEpochs:  19%|█▉        | 19/100 [30:56<2:09:07, 95.65s/it, acc=0.550, loss=0.5383]  [Vis/Val] Step    37 | Loss 0.6407 | Mean acc 0.650 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000037
-  [Vis/Val] Step    38 | Loss 0.5940 | Mean acc 0.650 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000038
-
-Epoch 20:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 20:  50%|█████     | 1/2 [01:02<01:02, 62.84s/it][AEpochs:  19%|█▉        | 19/100 [31:59<2:09:07, 95.65s/it, acc=0.708, loss=0.5016]
-Epoch 20: 100%|██████████| 2/2 [01:36<00:00, 45.53s/it][A
-                                                       [AEpochs:  20%|██        | 20/100 [32:33<2:07:48, 95.85s/it, acc=0.708, loss=0.5016]  [Vis/Val] Step    39 | Loss 0.5410 | Mean acc 0.650 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 0.50 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000039
-Epoch  20 | Step    40 | Loss 0.5016 | Acc 0.708 | LR 9.05e-05
-  [Vis/Val] Step    40 | Loss 0.4916 | Mean acc 0.750 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000040
-
-Epoch 21:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 21:  50%|█████     | 1/2 [01:02<01:02, 62.73s/it][A
-Epoch 21: 100%|██████████| 2/2 [01:35<00:00, 45.35s/it][A
-                                                       [AEpochs:  21%|██        | 21/100 [34:09<2:06:16, 95.90s/it, acc=0.708, loss=0.5016]  [Vis/Val] Step    41 | Loss 0.4707 | Mean acc 0.750 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000041
-  [Vis/Val] Step    42 | Loss 0.4569 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000042
-
-Epoch 22:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 22:  50%|█████     | 1/2 [01:03<01:03, 63.05s/it][A
-Epoch 22: 100%|██████████| 2/2 [01:36<00:00, 45.59s/it][A
-                                                       [AEpochs:  22%|██▏       | 22/100 [35:45<2:04:53, 96.07s/it, acc=0.708, loss=0.5016]  [Vis/Val] Step    43 | Loss 0.4394 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000043
-  [Vis/Val] Step    44 | Loss 0.4333 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000044
-
-Epoch 23:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 23:  50%|█████     | 1/2 [01:02<01:02, 62.73s/it][A
-Epoch 23: 100%|██████████| 2/2 [01:35<00:00, 45.25s/it][A
-                                                       [AEpochs:  23%|██▎       | 23/100 [37:21<2:03:11, 95.99s/it, acc=0.708, loss=0.5016]  [Vis/Val] Step    45 | Loss 0.4336 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000045
-  [Vis/Val] Step    46 | Loss 0.4423 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000046
-
-Epoch 24:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 24:  50%|█████     | 1/2 [01:02<01:02, 62.64s/it][A
-Epoch 24: 100%|██████████| 2/2 [01:35<00:00, 45.21s/it][A
-                                                       [AEpochs:  24%|██▍       | 24/100 [38:57<2:01:28, 95.91s/it, acc=0.708, loss=0.5016]  [Vis/Val] Step    47 | Loss 0.4578 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000047
-  [Vis/Val] Step    48 | Loss 0.5126 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000048
-
-Epoch 25:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 25:  50%|█████     | 1/2 [01:02<01:02, 62.33s/it][AEpochs:  24%|██▍       | 24/100 [39:59<2:01:28, 95.91s/it, acc=0.750, loss=0.4267]Epochs:  24%|██▍       | 24/100 [40:07<2:01:28, 95.91s/it, acc=0.750, loss=0.4267, val_acc=0.800, val_loss=0.5784]
-Epoch 25: 100%|██████████| 2/2 [01:44<00:00, 50.37s/it][A
-                                                       [AEpochs:  25%|██▌       | 25/100 [40:41<2:03:03, 98.45s/it, acc=0.750, loss=0.4267, val_acc=0.800, val_loss=0.5784]  [Vis/Val] Step    49 | Loss 0.5473 | Mean acc 0.820 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000049
-Epoch  25 | Step    50 | Loss 0.4267 | Acc 0.750 | LR 8.54e-05
-  [Val] Step    50 | Loss 0.5784 | Mean acc 0.800 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis/Val] Step    50 | Loss 0.5784 | Mean acc 0.800 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000050
-
-Epoch 26:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 26:  50%|█████     | 1/2 [01:02<01:02, 62.19s/it][A
-Epoch 26: 100%|██████████| 2/2 [01:35<00:00, 45.15s/it][A
-                                                       [AEpochs:  26%|██▌       | 26/100 [42:16<2:00:20, 97.57s/it, acc=0.750, loss=0.4267, val_acc=0.800, val_loss=0.5784]  [Vis/Val] Step    51 | Loss 0.6097 | Mean acc 0.800 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000051
-  [Vis/Val] Step    52 | Loss 0.6031 | Mean acc 0.800 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000052
-
-Epoch 27:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 27:  50%|█████     | 1/2 [01:02<01:02, 62.75s/it][A
-Epoch 27: 100%|██████████| 2/2 [01:36<00:00, 45.50s/it][A
-                                                       [AEpochs:  27%|██▋       | 27/100 [43:53<1:58:14, 97.18s/it, acc=0.750, loss=0.4267, val_acc=0.800, val_loss=0.5784]  [Vis/Val] Step    53 | Loss 0.5770 | Mean acc 0.800 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000053
-  [Vis/Val] Step    54 | Loss 0.5792 | Mean acc 0.800 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000054
-
-Epoch 28:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 28:  50%|█████     | 1/2 [01:03<01:03, 63.20s/it][A
-Epoch 28: 100%|██████████| 2/2 [01:36<00:00, 45.71s/it][A
-                                                       [AEpochs:  28%|██▊       | 28/100 [45:29<1:56:27, 97.05s/it, acc=0.750, loss=0.4267, val_acc=0.800, val_loss=0.5784]  [Vis/Val] Step    55 | Loss 0.5595 | Mean acc 0.750 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000055
-  [Vis/Val] Step    56 | Loss 0.5411 | Mean acc 0.750 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000056
-
-Epoch 29:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 29:  50%|█████     | 1/2 [01:03<01:03, 63.68s/it][A
-Epoch 29: 100%|██████████| 2/2 [01:37<00:00, 45.91s/it][A
-                                                       [AEpochs:  29%|██▉       | 29/100 [47:07<1:54:54, 97.10s/it, acc=0.750, loss=0.4267, val_acc=0.800, val_loss=0.5784]  [Vis/Val] Step    57 | Loss 0.4974 | Mean acc 0.750 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000057
-  [Vis/Val] Step    58 | Loss 0.4852 | Mean acc 0.750 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000058
-
-Epoch 30:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 30:  50%|█████     | 1/2 [01:04<01:04, 64.62s/it][AEpochs:  29%|██▉       | 29/100 [48:11<1:54:54, 97.10s/it, acc=0.875, loss=0.6062]                                
-Epoch 30: 100%|██████████| 2/2 [01:38<00:00, 46.42s/it][A
-                                                       [AEpochs:  30%|███       | 30/100 [48:45<1:53:43, 97.48s/it, acc=0.875, loss=0.6062]  [Vis/Val] Step    59 | Loss 0.4667 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000059
-Epoch  30 | Step    60 | Loss 0.6062 | Acc 0.875 | LR 7.94e-05
-  [Vis/Val] Step    60 | Loss 0.4458 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000060
-
-Epoch 31:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 31:  50%|█████     | 1/2 [01:04<01:04, 64.30s/it][A
-Epoch 31: 100%|██████████| 2/2 [01:38<00:00, 46.47s/it][A
-                                                       [AEpochs:  31%|███       | 31/100 [50:23<1:52:24, 97.75s/it, acc=0.875, loss=0.6062]  [Vis/Val] Step    61 | Loss 0.4334 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000061
-  [Vis/Val] Step    62 | Loss 0.3966 | Mean acc 0.790 | Fast: 0.60 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000062
-
-Epoch 32:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 32:  50%|█████     | 1/2 [01:04<01:04, 64.96s/it][A
-Epoch 32: 100%|██████████| 2/2 [01:38<00:00, 46.28s/it][A
-                                                       [AEpochs:  32%|███▏      | 32/100 [52:02<1:50:56, 97.89s/it, acc=0.875, loss=0.6062]  [Vis/Val] Step    63 | Loss 0.3801 | Mean acc 0.790 | Fast: 0.60 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000063
-  [Vis/Val] Step    64 | Loss 0.3779 | Mean acc 0.790 | Fast: 0.60 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000064
-
-Epoch 33:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 33:  50%|█████     | 1/2 [01:03<01:03, 63.22s/it][A
-Epoch 33: 100%|██████████| 2/2 [01:37<00:00, 45.99s/it][A
-                                                       [AEpochs:  33%|███▎      | 33/100 [53:39<1:49:05, 97.69s/it, acc=0.875, loss=0.6062]  [Vis/Val] Step    65 | Loss 0.3609 | Mean acc 0.840 | Fast: 0.60 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000065
-  [Vis/Val] Step    66 | Loss 0.3630 | Mean acc 0.840 | Fast: 0.60 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000066
-
-Epoch 34:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 34:  50%|█████     | 1/2 [01:04<01:04, 64.31s/it][A
-Epoch 34: 100%|██████████| 2/2 [01:37<00:00, 46.29s/it][A
-                                                       [AEpochs:  34%|███▍      | 34/100 [55:17<1:47:35, 97.81s/it, acc=0.875, loss=0.6062]  [Vis/Val] Step    67 | Loss 0.4094 | Mean acc 0.840 | Fast: 0.60 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000067
-  [Vis/Val] Step    68 | Loss 0.4841 | Mean acc 0.840 | Fast: 0.60 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000068
-
-Epoch 35:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 35:  50%|█████     | 1/2 [01:03<01:03, 63.99s/it][AEpochs:  34%|███▍      | 34/100 [56:21<1:47:35, 97.81s/it, acc=1.000, loss=0.1551]
-Epoch 35: 100%|██████████| 2/2 [01:37<00:00, 45.89s/it][A
-                                                       [AEpochs:  35%|███▌      | 35/100 [56:54<1:45:46, 97.65s/it, acc=1.000, loss=0.1551]  [Vis/Val] Step    69 | Loss 0.5285 | Mean acc 0.840 | Fast: 0.60 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000069
-Epoch  35 | Step    70 | Loss 0.1551 | Acc 1.000 | LR 7.27e-05
-  [Vis/Val] Step    70 | Loss 0.5899 | Mean acc 0.820 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000070
-
-Epoch 36:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 36:  50%|█████     | 1/2 [01:05<01:05, 65.60s/it][A
-Epoch 36: 100%|██████████| 2/2 [01:39<00:00, 47.01s/it][A
-                                                       [AEpochs:  36%|███▌      | 36/100 [58:34<1:44:47, 98.25s/it, acc=1.000, loss=0.1551]  [Vis/Val] Step    71 | Loss 0.6524 | Mean acc 0.820 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000071
-  [Vis/Val] Step    72 | Loss 0.6680 | Mean acc 0.840 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000072
-
-Epoch 37:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 37:  50%|█████     | 1/2 [01:03<01:03, 63.53s/it][A
-Epoch 37: 100%|██████████| 2/2 [01:37<00:00, 45.92s/it][A
-                                                       [AEpochs:  37%|███▋      | 37/100 [1:00:11<1:42:50, 97.94s/it, acc=1.000, loss=0.1551]  [Vis/Val] Step    73 | Loss 0.6211 | Mean acc 0.820 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000073
-  [Vis/Val] Step    74 | Loss 0.5516 | Mean acc 0.820 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000074
-
-Epoch 38:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 38:  50%|█████     | 1/2 [01:04<01:04, 64.12s/it][A
-Epoch 38: 100%|██████████| 2/2 [01:37<00:00, 46.19s/it][A
-                                                       [AEpochs:  38%|███▊      | 38/100 [1:01:49<1:41:10, 97.91s/it, acc=1.000, loss=0.1551]  [Vis/Val] Step    75 | Loss 0.4886 | Mean acc 0.840 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000075
-  [Vis/Val] Step    76 | Loss 0.4360 | Mean acc 0.860 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 1.00
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000076
-
-Epoch 39:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 39:  50%|█████     | 1/2 [01:03<01:03, 63.67s/it][A
-Epoch 39: 100%|██████████| 2/2 [01:36<00:00, 45.79s/it][A
-                                                       [AEpochs:  39%|███▉      | 39/100 [1:03:26<1:39:16, 97.65s/it, acc=1.000, loss=0.1551]  [Vis/Val] Step    77 | Loss 0.4027 | Mean acc 0.810 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000077
-  [Vis/Val] Step    78 | Loss 0.3937 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000078
-
-Epoch 40:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 40:  50%|█████     | 1/2 [01:03<01:03, 63.37s/it][AEpochs:  39%|███▉      | 39/100 [1:04:29<1:39:16, 97.65s/it, acc=0.775, loss=0.2457]
-Epoch 40: 100%|██████████| 2/2 [01:36<00:00, 45.49s/it][A
-                                                       [AEpochs:  40%|████      | 40/100 [1:05:02<1:37:17, 97.28s/it, acc=0.775, loss=0.2457]  [Vis/Val] Step    79 | Loss 0.3886 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000079
-Epoch  40 | Step    80 | Loss 0.2457 | Acc 0.775 | LR 6.55e-05
-  [Vis/Val] Step    80 | Loss 0.3633 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000080
-
-Epoch 41:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 41:  50%|█████     | 1/2 [01:03<01:03, 63.55s/it][A
-Epoch 41: 100%|██████████| 2/2 [01:36<00:00, 45.82s/it][A
-                                                       [AEpochs:  41%|████      | 41/100 [1:06:39<1:35:35, 97.22s/it, acc=0.775, loss=0.2457]  [Vis/Val] Step    81 | Loss 0.3384 | Mean acc 0.800 | Fast: 0.80 | Smooth: 0.70 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000081
-  [Vis/Val] Step    82 | Loss 0.3354 | Mean acc 0.780 | Fast: 0.70 | Smooth: 0.70 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000082
-
-Epoch 42:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 42:  50%|█████     | 1/2 [01:03<01:03, 63.49s/it][A
-Epoch 42: 100%|██████████| 2/2 [01:36<00:00, 45.77s/it][A
-                                                       [AEpochs:  42%|████▏     | 42/100 [1:08:16<1:33:53, 97.13s/it, acc=0.775, loss=0.2457]  [Vis/Val] Step    83 | Loss 0.3455 | Mean acc 0.740 | Fast: 0.60 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000083
-  [Vis/Val] Step    84 | Loss 0.3735 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000084
-
-Epoch 43:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 43:  50%|█████     | 1/2 [01:02<01:02, 62.50s/it][A
-Epoch 43: 100%|██████████| 2/2 [01:35<00:00, 45.08s/it][A
-                                                       [AEpochs:  43%|████▎     | 43/100 [1:09:52<1:31:48, 96.64s/it, acc=0.775, loss=0.2457]  [Vis/Val] Step    85 | Loss 0.4227 | Mean acc 0.810 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000085
-  [Vis/Val] Step    86 | Loss 0.4809 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000086
-
-Epoch 44:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 44:  50%|█████     | 1/2 [01:02<01:02, 62.49s/it][A
-Epoch 44: 100%|██████████| 2/2 [01:35<00:00, 45.09s/it][A
-                                                       [AEpochs:  44%|████▍     | 44/100 [1:11:27<1:29:52, 96.29s/it, acc=0.775, loss=0.2457]  [Vis/Val] Step    87 | Loss 0.5294 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000087
-  [Vis/Val] Step    88 | Loss 0.5555 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000088
-
-Epoch 45:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 45:  50%|█████     | 1/2 [01:02<01:02, 62.19s/it][AEpochs:  44%|████▍     | 44/100 [1:12:30<1:29:52, 96.29s/it, acc=0.900, loss=0.1409]
-Epoch 45: 100%|██████████| 2/2 [01:35<00:00, 45.09s/it][A
-                                                       [AEpochs:  45%|████▌     | 45/100 [1:13:03<1:28:00, 96.01s/it, acc=0.900, loss=0.1409]  [Vis/Val] Step    89 | Loss 0.5552 | Mean acc 0.770 | Fast: 0.60 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000089
-Epoch  45 | Step    90 | Loss 0.1409 | Acc 0.900 | LR 5.78e-05
-  [Vis/Val] Step    90 | Loss 0.5694 | Mean acc 0.790 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000090
-
-Epoch 46:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 46:  50%|█████     | 1/2 [01:02<01:02, 62.18s/it][A
-Epoch 46: 100%|██████████| 2/2 [01:34<00:00, 44.85s/it][A
-                                                       [AEpochs:  46%|████▌     | 46/100 [1:14:38<1:26:07, 95.70s/it, acc=0.900, loss=0.1409]  [Vis/Val] Step    91 | Loss 0.5684 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000091
-  [Vis/Val] Step    92 | Loss 0.5585 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000092
-
-Epoch 47:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 47:  50%|█████     | 1/2 [01:01<01:01, 61.90s/it][A
-Epoch 47: 100%|██████████| 2/2 [01:34<00:00, 44.71s/it][A
-                                                       [AEpochs:  47%|████▋     | 47/100 [1:16:12<1:24:15, 95.39s/it, acc=0.900, loss=0.1409]  [Vis/Val] Step    93 | Loss 0.5332 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000093
-  [Vis/Val] Step    94 | Loss 0.5116 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000094
-
-Epoch 48:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 48:  50%|█████     | 1/2 [01:03<01:03, 63.13s/it][A
-Epoch 48: 100%|██████████| 2/2 [01:35<00:00, 45.31s/it][A
-                                                       [AEpochs:  48%|████▊     | 48/100 [1:17:48<1:22:50, 95.58s/it, acc=0.900, loss=0.1409]  [Vis/Val] Step    95 | Loss 0.4948 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000095
-  [Vis/Val] Step    96 | Loss 0.4436 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000096
-
-Epoch 49:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 49:  50%|█████     | 1/2 [01:02<01:02, 62.01s/it][A
-Epoch 49: 100%|██████████| 2/2 [01:34<00:00, 44.79s/it][A
-                                                       [AEpochs:  49%|████▉     | 49/100 [1:19:23<1:21:03, 95.35s/it, acc=0.900, loss=0.1409]  [Vis/Val] Step    97 | Loss 0.4257 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000097
-  [Vis/Val] Step    98 | Loss 0.3960 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000098
-
-Epoch 50:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 50:  50%|█████     | 1/2 [01:01<01:01, 61.60s/it][AEpochs:  49%|████▉     | 49/100 [1:20:25<1:21:03, 95.35s/it, acc=0.950, loss=0.1351]Epochs:  49%|████▉     | 49/100 [1:20:33<1:21:03, 95.35s/it, acc=0.950, loss=0.1351, val_acc=0.740, val_loss=0.4336]
-Epoch 50: 100%|██████████| 2/2 [01:44<00:00, 50.38s/it][A
-                                                       [AEpochs:  50%|█████     | 50/100 [1:21:07<1:21:40, 98.01s/it, acc=0.950, loss=0.1351, val_acc=0.740, val_loss=0.4336]  [Vis/Val] Step    99 | Loss 0.3979 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000099
-Epoch  50 | Step   100 | Loss 0.1351 | Acc 0.950 | LR 5.00e-05
-  [Val] Step   100 | Loss 0.4336 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis/Val] Step   100 | Loss 0.4336 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000100
-
-Epoch 51:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 51:  50%|█████     | 1/2 [01:03<01:03, 63.87s/it][A
-Epoch 51: 100%|██████████| 2/2 [01:37<00:00, 46.19s/it][A
-                                                       [AEpochs:  51%|█████     | 51/100 [1:22:45<1:19:58, 97.92s/it, acc=0.950, loss=0.1351, val_acc=0.740, val_loss=0.4336]  [Vis/Val] Step   101 | Loss 0.4671 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000101
-  [Vis/Val] Step   102 | Loss 0.5137 | Mean acc 0.700 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000102
-
-Epoch 52:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 52:  50%|█████     | 1/2 [01:03<01:03, 63.04s/it][A
-Epoch 52: 100%|██████████| 2/2 [01:36<00:00, 45.55s/it][A
-                                                       [AEpochs:  52%|█████▏    | 52/100 [1:24:22<1:17:58, 97.47s/it, acc=0.950, loss=0.1351, val_acc=0.740, val_loss=0.4336]  [Vis/Val] Step   103 | Loss 0.5617 | Mean acc 0.750 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000103
-  [Vis/Val] Step   104 | Loss 0.6227 | Mean acc 0.770 | Fast: 0.50 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000104
-
-Epoch 53:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 53:  50%|█████     | 1/2 [01:02<01:02, 62.50s/it][A
-Epoch 53: 100%|██████████| 2/2 [01:35<00:00, 45.33s/it][A
-                                                       [AEpochs:  53%|█████▎    | 53/100 [1:25:57<1:15:58, 97.00s/it, acc=0.950, loss=0.1351, val_acc=0.740, val_loss=0.4336]  [Vis/Val] Step   105 | Loss 0.6560 | Mean acc 0.750 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000105
-  [Vis/Val] Step   106 | Loss 0.6598 | Mean acc 0.750 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000106
-
-Epoch 54:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 54:  50%|█████     | 1/2 [01:02<01:02, 62.21s/it][A
-Epoch 54: 100%|██████████| 2/2 [01:35<00:00, 45.43s/it][A
-                                                       [AEpochs:  54%|█████▍    | 54/100 [1:27:33<1:14:07, 96.69s/it, acc=0.950, loss=0.1351, val_acc=0.740, val_loss=0.4336]  [Vis/Val] Step   107 | Loss 0.6394 | Mean acc 0.770 | Fast: 0.50 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000107
-  [Vis/Val] Step   108 | Loss 0.5591 | Mean acc 0.750 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000108
-
-Epoch 55:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 55:  50%|█████     | 1/2 [01:02<01:02, 62.87s/it][AEpochs:  54%|█████▍    | 54/100 [1:28:36<1:14:07, 96.69s/it, acc=0.975, loss=0.1129]                                
-Epoch 55: 100%|██████████| 2/2 [01:35<00:00, 45.32s/it][A
-                                                       [AEpochs:  55%|█████▌    | 55/100 [1:29:09<1:12:21, 96.48s/it, acc=0.975, loss=0.1129]  [Vis/Val] Step   109 | Loss 0.4631 | Mean acc 0.790 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000109
-Epoch  55 | Step   110 | Loss 0.1129 | Acc 0.975 | LR 4.22e-05
-  [Vis/Val] Step   110 | Loss 0.4116 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000110
-
-Epoch 56:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 56:  50%|█████     | 1/2 [01:04<01:04, 64.08s/it][A
-Epoch 56: 100%|██████████| 2/2 [01:37<00:00, 45.83s/it][A
-                                                       [AEpochs:  56%|█████▌    | 56/100 [1:30:47<1:10:54, 96.70s/it, acc=0.975, loss=0.1129]  [Vis/Val] Step   111 | Loss 0.3933 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000111
-  [Vis/Val] Step   112 | Loss 0.3754 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000112
-
-Epoch 57:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 57:  50%|█████     | 1/2 [01:03<01:03, 63.52s/it][A
-Epoch 57: 100%|██████████| 2/2 [01:36<00:00, 45.71s/it][A
-                                                       [AEpochs:  57%|█████▋    | 57/100 [1:32:23<1:09:19, 96.74s/it, acc=0.975, loss=0.1129]  [Vis/Val] Step   113 | Loss 0.3856 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000113
-  [Vis/Val] Step   114 | Loss 0.3810 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000114
-
-Epoch 58:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 58:  50%|█████     | 1/2 [01:03<01:03, 63.40s/it][A
-Epoch 58: 100%|██████████| 2/2 [01:37<00:00, 45.88s/it][A
-                                                       [AEpochs:  58%|█████▊    | 58/100 [1:34:01<1:07:47, 96.84s/it, acc=0.975, loss=0.1129]  [Vis/Val] Step   115 | Loss 0.3789 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000115
-  [Vis/Val] Step   116 | Loss 0.3942 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000116
-
-Epoch 59:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 59:  50%|█████     | 1/2 [01:03<01:03, 63.26s/it][A
-Epoch 59: 100%|██████████| 2/2 [01:36<00:00, 45.76s/it][A
-                                                       [AEpochs:  59%|█████▉    | 59/100 [1:35:37<1:06:10, 96.85s/it, acc=0.975, loss=0.1129]  [Vis/Val] Step   117 | Loss 0.4217 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000117
-  [Vis/Val] Step   118 | Loss 0.4651 | Mean acc 0.790 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000118
-
-Epoch 60:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 60:  50%|█████     | 1/2 [01:03<01:03, 63.08s/it][AEpochs:  59%|█████▉    | 59/100 [1:36:41<1:06:10, 96.85s/it, acc=0.950, loss=0.0924]
-Epoch 60: 100%|██████████| 2/2 [01:36<00:00, 45.73s/it][A
-                                                       [AEpochs:  60%|██████    | 60/100 [1:37:14<1:04:32, 96.81s/it, acc=0.950, loss=0.0924]  [Vis/Val] Step   119 | Loss 0.5135 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000119
-Epoch  60 | Step   120 | Loss 0.0924 | Acc 0.950 | LR 3.45e-05
-  [Vis/Val] Step   120 | Loss 0.5932 | Mean acc 0.790 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.75
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000120
-
-Epoch 61:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 61:  50%|█████     | 1/2 [01:02<01:02, 62.83s/it][A
-Epoch 61: 100%|██████████| 2/2 [01:35<00:00, 45.17s/it][A
-                                                       [AEpochs:  61%|██████    | 61/100 [1:38:50<1:02:42, 96.48s/it, acc=0.950, loss=0.0924]  [Vis/Val] Step   121 | Loss 0.6626 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000121
-  [Vis/Val] Step   122 | Loss 0.7159 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000122
-
-Epoch 62:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 62:  50%|█████     | 1/2 [01:03<01:03, 63.41s/it][A
-Epoch 62: 100%|██████████| 2/2 [01:36<00:00, 45.65s/it][A
-                                                       [AEpochs:  62%|██████▏   | 62/100 [1:40:26<1:01:08, 96.54s/it, acc=0.950, loss=0.0924]  [Vis/Val] Step   123 | Loss 0.7345 | Mean acc 0.740 | Fast: 0.70 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000123
-  [Vis/Val] Step   124 | Loss 0.7770 | Mean acc 0.700 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000124
-
-Epoch 63:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 63:  50%|█████     | 1/2 [01:03<01:03, 63.13s/it][A
-Epoch 63: 100%|██████████| 2/2 [01:36<00:00, 45.78s/it][A
-                                                       [AEpochs:  63%|██████▎   | 63/100 [1:42:03<59:35, 96.63s/it, acc=0.950, loss=0.0924]    [Vis/Val] Step   125 | Loss 0.7866 | Mean acc 0.700 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000125
-  [Vis/Val] Step   126 | Loss 0.8024 | Mean acc 0.700 | Fast: 0.50 | Smooth: 0.50 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000126
-
-Epoch 64:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 64:  50%|█████     | 1/2 [01:02<01:02, 62.83s/it][A
-Epoch 64: 100%|██████████| 2/2 [01:36<00:00, 45.64s/it][A
-                                                       [AEpochs:  64%|██████▍   | 64/100 [1:43:40<57:57, 96.59s/it, acc=0.950, loss=0.0924]  [Vis/Val] Step   127 | Loss 0.7466 | Mean acc 0.740 | Fast: 0.60 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000127
-  [Vis/Val] Step   128 | Loss 0.7086 | Mean acc 0.720 | Fast: 0.50 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000128
-
-Epoch 65:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 65:  50%|█████     | 1/2 [01:03<01:03, 63.22s/it][AEpochs:  64%|██████▍   | 64/100 [1:44:43<57:57, 96.59s/it, acc=0.933, loss=0.1182]
-Epoch 65: 100%|██████████| 2/2 [01:36<00:00, 45.74s/it][A
-                                                       [AEpochs:  65%|██████▌   | 65/100 [1:45:17<56:22, 96.65s/it, acc=0.933, loss=0.1182]  [Vis/Val] Step   129 | Loss 0.6418 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000129
-Epoch  65 | Step   130 | Loss 0.1182 | Acc 0.933 | LR 2.73e-05
-  [Vis/Val] Step   130 | Loss 0.5579 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000130
-
-Epoch 66:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 66:  50%|█████     | 1/2 [01:04<01:04, 64.20s/it][A
-Epoch 66: 100%|██████████| 2/2 [01:37<00:00, 46.16s/it][A
-                                                       [AEpochs:  66%|██████▌   | 66/100 [1:46:54<54:58, 97.00s/it, acc=0.933, loss=0.1182]  [Vis/Val] Step   131 | Loss 0.4915 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000131
-  [Vis/Val] Step   132 | Loss 0.4615 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000132
-
-Epoch 67:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 67:  50%|█████     | 1/2 [01:03<01:03, 63.62s/it][A
-Epoch 67: 100%|██████████| 2/2 [01:36<00:00, 45.70s/it][A
-                                                       [AEpochs:  67%|██████▋   | 67/100 [1:48:31<53:19, 96.97s/it, acc=0.933, loss=0.1182]  [Vis/Val] Step   133 | Loss 0.4342 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000133
-  [Vis/Val] Step   134 | Loss 0.4079 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000134
-
-Epoch 68:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 68:  50%|█████     | 1/2 [01:03<01:03, 63.81s/it][A
-Epoch 68: 100%|██████████| 2/2 [01:37<00:00, 46.19s/it][A
-                                                       [AEpochs:  68%|██████▊   | 68/100 [1:50:09<51:50, 97.20s/it, acc=0.933, loss=0.1182]  [Vis/Val] Step   135 | Loss 0.3956 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000135
-  [Vis/Val] Step   136 | Loss 0.3957 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000136
-
-Epoch 69:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 69:  50%|█████     | 1/2 [01:03<01:03, 63.24s/it][A
-Epoch 69: 100%|██████████| 2/2 [01:36<00:00, 45.79s/it][A
-                                                       [AEpochs:  69%|██████▉   | 69/100 [1:51:46<50:10, 97.11s/it, acc=0.933, loss=0.1182]  [Vis/Val] Step   137 | Loss 0.4106 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000137
-  [Vis/Val] Step   138 | Loss 0.4166 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000138
-
-Epoch 70:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 70:  50%|█████     | 1/2 [01:02<01:02, 62.61s/it][AEpochs:  69%|██████▉   | 69/100 [1:52:49<50:10, 97.11s/it, acc=1.000, loss=0.0801]
-Epoch 70: 100%|██████████| 2/2 [01:35<00:00, 45.27s/it][A
-                                                       [AEpochs:  70%|███████   | 70/100 [1:53:22<48:21, 96.72s/it, acc=1.000, loss=0.0801]  [Vis/Val] Step   139 | Loss 0.4491 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000139
-Epoch  70 | Step   140 | Loss 0.0801 | Acc 1.000 | LR 2.06e-05
-  [Vis/Val] Step   140 | Loss 0.4873 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000140
-
-Epoch 71:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 71:  50%|█████     | 1/2 [01:02<01:02, 62.78s/it][A
-Epoch 71: 100%|██████████| 2/2 [01:35<00:00, 45.20s/it][A
-                                                       [AEpochs:  71%|███████   | 71/100 [1:54:58<46:36, 96.43s/it, acc=1.000, loss=0.0801]  [Vis/Val] Step   141 | Loss 0.5102 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000141
-  [Vis/Val] Step   142 | Loss 0.5137 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000142
-
-Epoch 72:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 72:  50%|█████     | 1/2 [01:02<01:02, 62.58s/it][A
-Epoch 72: 100%|██████████| 2/2 [01:35<00:00, 45.15s/it][A
-                                                       [AEpochs:  72%|███████▏  | 72/100 [1:56:33<44:53, 96.18s/it, acc=1.000, loss=0.0801]  [Vis/Val] Step   143 | Loss 0.5428 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000143
-  [Vis/Val] Step   144 | Loss 0.5621 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000144
-
-Epoch 73:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 73:  50%|█████     | 1/2 [01:01<01:01, 61.50s/it][A
-Epoch 73: 100%|██████████| 2/2 [01:34<00:00, 44.63s/it][A
-                                                       [AEpochs:  73%|███████▎  | 73/100 [1:58:08<43:02, 95.65s/it, acc=1.000, loss=0.0801]  [Vis/Val] Step   145 | Loss 0.5758 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000145
-  [Vis/Val] Step   146 | Loss 0.5740 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000146
-
-Epoch 74:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 74:  50%|█████     | 1/2 [01:02<01:02, 62.18s/it][A
-Epoch 74: 100%|██████████| 2/2 [01:35<00:00, 44.92s/it][A
-                                                       [AEpochs:  74%|███████▍  | 74/100 [1:59:43<41:22, 95.49s/it, acc=1.000, loss=0.0801]  [Vis/Val] Step   147 | Loss 0.5776 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000147
-  [Vis/Val] Step   148 | Loss 0.5791 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000148
-
-Epoch 75:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 75:  50%|█████     | 1/2 [01:02<01:02, 62.04s/it][AEpochs:  74%|███████▍  | 74/100 [2:00:45<41:22, 95.49s/it, acc=0.800, loss=0.0556]Epochs:  74%|███████▍  | 74/100 [2:00:53<41:22, 95.49s/it, acc=0.800, loss=0.0556, val_acc=0.760, val_loss=0.5730]
-Epoch 75: 100%|██████████| 2/2 [01:43<00:00, 49.99s/it][A
-                                                       [AEpochs:  75%|███████▌  | 75/100 [2:01:26<40:48, 97.94s/it, acc=0.800, loss=0.0556, val_acc=0.760, val_loss=0.5730]  [Vis/Val] Step   149 | Loss 0.5836 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000149
-Epoch  75 | Step   150 | Loss 0.0556 | Acc 0.800 | LR 1.46e-05
-  [Val] Step   150 | Loss 0.5730 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis/Val] Step   150 | Loss 0.5730 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000150
-
-Epoch 76:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 76:  50%|█████     | 1/2 [01:01<01:01, 61.89s/it][A
-Epoch 76: 100%|██████████| 2/2 [01:35<00:00, 44.98s/it][A
-                                                       [AEpochs:  76%|███████▌  | 76/100 [2:03:01<38:50, 97.10s/it, acc=0.800, loss=0.0556, val_acc=0.760, val_loss=0.5730]  [Vis/Val] Step   151 | Loss 0.5842 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000151
-  [Vis/Val] Step   152 | Loss 0.5723 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000152
-
-Epoch 77:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 77:  50%|█████     | 1/2 [01:02<01:02, 62.76s/it][A
-Epoch 77: 100%|██████████| 2/2 [01:35<00:00, 45.10s/it][A
-                                                       [AEpochs:  77%|███████▋  | 77/100 [2:04:37<37:02, 96.64s/it, acc=0.800, loss=0.0556, val_acc=0.760, val_loss=0.5730]  [Vis/Val] Step   153 | Loss 0.5621 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000153
-  [Vis/Val] Step   154 | Loss 0.5349 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000154
-
-Epoch 78:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 78:  50%|█████     | 1/2 [01:02<01:02, 62.59s/it][A
-Epoch 78: 100%|██████████| 2/2 [01:35<00:00, 45.25s/it][A
-                                                       [AEpochs:  78%|███████▊  | 78/100 [2:06:13<35:20, 96.39s/it, acc=0.800, loss=0.0556, val_acc=0.760, val_loss=0.5730]  [Vis/Val] Step   155 | Loss 0.5170 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000155
-  [Vis/Val] Step   156 | Loss 0.5201 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000156
-
-Epoch 79:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 79:  50%|█████     | 1/2 [01:02<01:02, 62.76s/it][A
-Epoch 79: 100%|██████████| 2/2 [01:35<00:00, 45.13s/it][A
-                                                       [AEpochs:  79%|███████▉  | 79/100 [2:07:48<33:39, 96.16s/it, acc=0.800, loss=0.0556, val_acc=0.760, val_loss=0.5730]  [Vis/Val] Step   157 | Loss 0.5206 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000157
-  [Vis/Val] Step   158 | Loss 0.5000 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000158
-
-Epoch 80:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 80:  50%|█████     | 1/2 [01:02<01:02, 62.03s/it][AEpochs:  79%|███████▉  | 79/100 [2:08:51<33:39, 96.16s/it, acc=1.000, loss=0.0478]                                
-Epoch 80: 100%|██████████| 2/2 [01:35<00:00, 45.15s/it][A
-                                                       [AEpochs:  80%|████████  | 80/100 [2:09:24<31:58, 95.94s/it, acc=1.000, loss=0.0478]  [Vis/Val] Step   159 | Loss 0.5021 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000159
-Epoch  80 | Step   160 | Loss 0.0478 | Acc 1.000 | LR 9.55e-06
-  [Vis/Val] Step   160 | Loss 0.5029 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000160
-
-Epoch 81:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 81:  50%|█████     | 1/2 [01:02<01:02, 62.54s/it][A
-Epoch 81: 100%|██████████| 2/2 [01:35<00:00, 45.22s/it][A
-                                                       [AEpochs:  81%|████████  | 81/100 [2:11:00<30:21, 95.87s/it, acc=1.000, loss=0.0478]  [Vis/Val] Step   161 | Loss 0.5056 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000161
-  [Vis/Val] Step   162 | Loss 0.5111 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000162
-
-Epoch 82:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 82:  50%|█████     | 1/2 [01:02<01:02, 62.66s/it][A
-Epoch 82: 100%|██████████| 2/2 [01:35<00:00, 45.19s/it][A
-                                                       [AEpochs:  82%|████████▏ | 82/100 [2:12:35<28:44, 95.82s/it, acc=1.000, loss=0.0478]  [Vis/Val] Step   163 | Loss 0.5209 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000163
-  [Vis/Val] Step   164 | Loss 0.5169 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000164
-
-Epoch 83:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 83:  50%|█████     | 1/2 [01:03<01:03, 63.21s/it][A
-Epoch 83: 100%|██████████| 2/2 [01:36<00:00, 45.85s/it][A
-                                                       [AEpochs:  83%|████████▎ | 83/100 [2:14:12<27:14, 96.16s/it, acc=1.000, loss=0.0478]  [Vis/Val] Step   165 | Loss 0.5253 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000165
-  [Vis/Val] Step   166 | Loss 0.5207 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000166
-
-Epoch 84:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 84:  50%|█████     | 1/2 [01:04<01:04, 64.64s/it][A
-Epoch 84: 100%|██████████| 2/2 [01:38<00:00, 46.49s/it][A
-                                                       [AEpochs:  84%|████████▍ | 84/100 [2:15:51<25:49, 96.87s/it, acc=1.000, loss=0.0478]  [Vis/Val] Step   167 | Loss 0.5400 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000167
-  [Vis/Val] Step   168 | Loss 0.5660 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000168
-
-Epoch 85:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 85:  50%|█████     | 1/2 [01:03<01:03, 63.21s/it][AEpochs:  84%|████████▍ | 84/100 [2:16:54<25:49, 96.87s/it, acc=0.975, loss=0.0716]
-Epoch 85: 100%|██████████| 2/2 [01:36<00:00, 45.46s/it][A
-                                                       [AEpochs:  85%|████████▌ | 85/100 [2:17:27<24:10, 96.70s/it, acc=0.975, loss=0.0716]  [Vis/Val] Step   169 | Loss 0.5722 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000169
-Epoch  85 | Step   170 | Loss 0.0716 | Acc 0.975 | LR 5.45e-06
-  [Vis/Val] Step   170 | Loss 0.5640 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000170
-
-Epoch 86:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 86:  50%|█████     | 1/2 [01:03<01:03, 63.66s/it][A
-Epoch 86: 100%|██████████| 2/2 [01:36<00:00, 45.72s/it][A
-                                                       [AEpochs:  86%|████████▌ | 86/100 [2:19:04<22:34, 96.75s/it, acc=0.975, loss=0.0716]  [Vis/Val] Step   171 | Loss 0.5706 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000171
-  [Vis/Val] Step   172 | Loss 0.5536 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000172
-
-Epoch 87:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 87:  50%|█████     | 1/2 [01:03<01:03, 63.19s/it][A
-Epoch 87: 100%|██████████| 2/2 [01:36<00:00, 45.85s/it][A
-                                                       [AEpochs:  87%|████████▋ | 87/100 [2:20:41<20:58, 96.83s/it, acc=0.975, loss=0.0716]  [Vis/Val] Step   173 | Loss 0.5593 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000173
-  [Vis/Val] Step   174 | Loss 0.5560 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000174
-
-Epoch 88:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 88:  50%|█████     | 1/2 [01:03<01:03, 63.02s/it][A
-Epoch 88: 100%|██████████| 2/2 [01:37<00:00, 45.97s/it][A
-                                                       [AEpochs:  88%|████████▊ | 88/100 [2:22:18<19:22, 96.91s/it, acc=0.975, loss=0.0716]  [Vis/Val] Step   175 | Loss 0.5588 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000175
-  [Vis/Val] Step   176 | Loss 0.5343 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000176
-
-Epoch 89:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 89:  50%|█████     | 1/2 [01:03<01:03, 63.08s/it][A
-Epoch 89: 100%|██████████| 2/2 [01:36<00:00, 45.65s/it][A
-                                                       [AEpochs:  89%|████████▉ | 89/100 [2:23:55<17:45, 96.83s/it, acc=0.975, loss=0.0716]  [Vis/Val] Step   177 | Loss 0.5444 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000177
-  [Vis/Val] Step   178 | Loss 0.5484 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000178
-
-Epoch 90:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 90:  50%|█████     | 1/2 [01:03<01:03, 63.71s/it][AEpochs:  89%|████████▉ | 89/100 [2:24:59<17:45, 96.83s/it, acc=0.750, loss=0.0918]
-Epoch 90: 100%|██████████| 2/2 [01:36<00:00, 45.81s/it][A
-                                                       [AEpochs:  90%|█████████ | 90/100 [2:25:32<16:09, 96.90s/it, acc=0.750, loss=0.0918]  [Vis/Val] Step   179 | Loss 0.5516 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000179
-Epoch  90 | Step   180 | Loss 0.0918 | Acc 0.750 | LR 2.45e-06
-  [Vis/Val] Step   180 | Loss 0.5807 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000180
-
-Epoch 91:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 91:  50%|█████     | 1/2 [01:03<01:03, 63.10s/it][A
-Epoch 91: 100%|██████████| 2/2 [01:36<00:00, 45.57s/it][A
-                                                       [AEpochs:  91%|█████████ | 91/100 [2:27:08<14:30, 96.77s/it, acc=0.750, loss=0.0918]  [Vis/Val] Step   181 | Loss 0.5735 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000181
-  [Vis/Val] Step   182 | Loss 0.5848 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000182
-
-Epoch 92:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 92:  50%|█████     | 1/2 [01:03<01:03, 63.06s/it][A
-Epoch 92: 100%|██████████| 2/2 [01:36<00:00, 45.64s/it][A
-                                                       [AEpochs:  92%|█████████▏| 92/100 [2:28:45<12:53, 96.71s/it, acc=0.750, loss=0.0918]  [Vis/Val] Step   183 | Loss 0.5724 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000183
-  [Vis/Val] Step   184 | Loss 0.5770 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000184
-
-Epoch 93:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 93:  50%|█████     | 1/2 [01:02<01:02, 62.74s/it][A
-Epoch 93: 100%|██████████| 2/2 [01:36<00:00, 45.48s/it][A
-                                                       [AEpochs:  93%|█████████▎| 93/100 [2:30:21<11:15, 96.57s/it, acc=0.750, loss=0.0918]  [Vis/Val] Step   185 | Loss 0.5717 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000185
-  [Vis/Val] Step   186 | Loss 0.5613 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000186
-
-Epoch 94:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 94:  50%|█████     | 1/2 [01:03<01:03, 63.39s/it][A
-Epoch 94: 100%|██████████| 2/2 [01:36<00:00, 45.73s/it][A
-                                                       [AEpochs:  94%|█████████▍| 94/100 [2:31:58<09:39, 96.65s/it, acc=0.750, loss=0.0918]  [Vis/Val] Step   187 | Loss 0.5608 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000187
-  [Vis/Val] Step   188 | Loss 0.5649 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000188
-
-Epoch 95:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 95:  50%|█████     | 1/2 [01:03<01:03, 63.58s/it][AEpochs:  94%|█████████▍| 94/100 [2:33:02<09:39, 96.65s/it, acc=0.950, loss=0.0580]
-Epoch 95: 100%|██████████| 2/2 [01:37<00:00, 45.90s/it][A
-                                                       [AEpochs:  95%|█████████▌| 95/100 [2:33:35<08:04, 96.81s/it, acc=0.950, loss=0.0580]  [Vis/Val] Step   189 | Loss 0.5564 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000189
-Epoch  95 | Step   190 | Loss 0.0580 | Acc 0.950 | LR 6.16e-07
-  [Vis/Val] Step   190 | Loss 0.5641 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000190
-
-Epoch 96:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 96:  50%|█████     | 1/2 [01:03<01:03, 63.38s/it][A
-Epoch 96: 100%|██████████| 2/2 [01:36<00:00, 45.80s/it][A
-                                                       [AEpochs:  96%|█████████▌| 96/100 [2:35:12<06:27, 96.85s/it, acc=0.950, loss=0.0580]  [Vis/Val] Step   191 | Loss 0.5681 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000191
-  [Vis/Val] Step   192 | Loss 0.5461 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000192
-
-Epoch 97:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 97:  50%|█████     | 1/2 [01:01<01:01, 61.86s/it][A
-Epoch 97: 100%|██████████| 2/2 [01:34<00:00, 44.84s/it][A
-                                                       [AEpochs:  97%|█████████▋| 97/100 [2:36:47<04:48, 96.25s/it, acc=0.950, loss=0.0580]  [Vis/Val] Step   193 | Loss 0.5533 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000193
-  [Vis/Val] Step   194 | Loss 0.5388 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000194
-
-Epoch 98:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 98:  50%|█████     | 1/2 [01:02<01:02, 62.17s/it][A
-Epoch 98: 100%|██████████| 2/2 [01:35<00:00, 45.12s/it][A
-                                                       [AEpochs:  98%|█████████▊| 98/100 [2:38:22<03:12, 96.01s/it, acc=0.950, loss=0.0580]  [Vis/Val] Step   195 | Loss 0.5465 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000195
-  [Vis/Val] Step   196 | Loss 0.5632 | Mean acc 0.760 | Fast: 0.70 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000196
-
-Epoch 99:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 99:  50%|█████     | 1/2 [01:01<01:01, 61.85s/it][A
-Epoch 99: 100%|██████████| 2/2 [01:34<00:00, 44.93s/it][A
-                                                       [AEpochs:  99%|█████████▉| 99/100 [2:39:57<01:35, 95.72s/it, acc=0.950, loss=0.0580]  [Vis/Val] Step   197 | Loss 0.5702 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000197
-  [Vis/Val] Step   198 | Loss 0.5495 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000198
-
-Epoch 100:   0%|          | 0/2 [00:00<?, ?it/s][A
-Epoch 100:  50%|█████     | 1/2 [01:02<01:02, 62.34s/it][AEpochs:  99%|█████████▉| 99/100 [2:41:00<01:35, 95.72s/it, acc=1.000, loss=0.0121]Epochs:  99%|█████████▉| 99/100 [2:41:09<01:35, 95.72s/it, acc=1.000, loss=0.0121, val_acc=0.780, val_loss=0.5601]
-Epoch 100: 100%|██████████| 2/2 [01:46<00:00, 51.90s/it][A
-                                                        [AEpochs: 100%|██████████| 100/100 [2:41:44<00:00, 99.11s/it, acc=1.000, loss=0.0121, val_acc=0.780, val_loss=0.5601]Epochs: 100%|██████████| 100/100 [2:41:44<00:00, 97.05s/it, acc=1.000, loss=0.0121, val_acc=0.780, val_loss=0.5601]
-wandb: updating run metadata
-wandb: uploading output.log; uploading wandb-summary.json; uploading config.yaml
-wandb: 
-wandb: Run history:
-wandb:   train/acc_Blue bowl █▅▁▅███▁█████████▁██
-wandb:        train/acc_Fast ▃▃▆▆█▁█▆████████████
-wandb: train/acc_Orange bowl █▁▅▆▅█████████▁█████
-wandb:      train/acc_Smooth ▄▁▇█▅▅████▇█████▇███
-wandb: train/acc_Yellow bowl ▁▂▁▁▁███▁▅█▅▃████▅▅█
-wandb:        train/acc_mean ▅▁▂▄▅▆█▅▇▇█▇▇█▅██▅▇█
-wandb:            train/loss ▇█▇▆▅▇▃▃▂▂▂▂▂▂▁▁▂▂▁▁
-wandb:              train/lr ███▇▇▇▆▆▅▅▄▃▃▂▂▂▁▁▁▁
-wandb:     val/acc_Blue bowl ▅▅▅▅▁█▅▅▅▅██████████████████████████████
-wandb:          val/acc_Fast ▆▆▃▃▁▁▁▁▁▁▃▃▁▃▃▃█▆▃▆▆▆▁▆▆▁▆▆▆▆▆▆████████
-wandb:                    +5 ...
-wandb: 
-wandb: Run summary:
-wandb:   train/acc_Blue bowl 1
-wandb:        train/acc_Fast 1
-wandb: train/acc_Orange bowl 1
-wandb:      train/acc_Smooth 1
-wandb: train/acc_Yellow bowl 1
-wandb:        train/acc_mean 1
-wandb:            train/loss 0.01214
-wandb:              train/lr 0
-wandb:     val/acc_Blue bowl 1
-wandb:          val/acc_Fast 0.8
-wandb:                    +5 ...
-wandb: 
-wandb: 🚀 View run 2026-04-12_19-00-11 at: https://wandb.ai/marcelto-stanford-university/reward_learning/runs/vq7j7xzq
-wandb: ⭐️ View project at: https://wandb.ai/marcelto-stanford-university/reward_learning
-wandb: Synced 5 W&B file(s), 1600 media file(s), 0 artifact file(s) and 0 other file(s)
-wandb: Find logs at: ./wandb/run-20260412_190013-vq7j7xzq/logs
-  [Vis/Val] Step   199 | Loss 0.5522 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000199
-Epoch 100 | Step   200 | Loss 0.0121 | Acc 1.000 | LR 0.00e+00
-  [Val] Step   200 | Loss 0.5601 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis/Val] Step   200 | Loss 0.5601 | Mean acc 0.780 | Fast: 0.80 | Smooth: 0.60 | Blue bowl: 1.00 | Orange bowl: 1.00 | Yellow bowl: 0.50
-  [Vis] Saved 8 validation figures → exp/2026-04-12_19-00-11/visualizations/step000200
-  [Ckpt] Saved → exp/2026-04-12_19-00-11/checkpoints/step000200.pt
-
-Final validation:
-  Fast: 0.800
-  Smooth: 0.600
-  Blue bowl: 1.000
-  Orange bowl: 1.000
-  Yellow bowl: 0.500
-
-Done. Outputs in exp/2026-04-12_19-00-11

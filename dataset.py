@@ -631,21 +631,92 @@ def load_anchors(
 # Open-axis wrapper (for qwen_open)
 # ---------------------------------------------------------------------------
 
+class DummyPreferenceDataset(Dataset):
+    """Tiny synthetic dataset for fast DDP/OOM debugging.
+
+    Returns the same schema as PreferenceDataset (third_person, wrist,
+    padding_mask, proprio, labels, succeeded_a/b, session) but generates
+    random uint8 image tensors on the fly. No HDF5, no preloading.
+
+    Exposes a `.samples` list so OpenPreferenceDataset can wrap this.
+    """
+
+    def __init__(
+        self,
+        n_samples: int,
+        seq_len: int,
+        img_size: tuple,
+        num_preferences: int,
+        proprio_dim: int = 8,
+        seed: int = 0,
+    ):
+        self.n = n_samples
+        self.T = seq_len
+        H = img_size[0] if isinstance(img_size, (tuple, list)) else int(img_size)
+        self.H = H
+        self.K = num_preferences
+        self.proprio_dim = proprio_dim
+        self.seed = seed
+        # OpenPreferenceDataset and downstream stat code read `.samples` —
+        # we only need `labels` present for the open wrapper to enumerate axes.
+        # Pre-seed each sample's label so axis prompts get a usable signal.
+        g = torch.Generator().manual_seed(seed)
+        self.samples = []
+        for i in range(n_samples):
+            labels = torch.zeros(num_preferences, dtype=torch.float32)
+            # Alternate 0/1 across samples and axes so cross-entropy isn't degenerate.
+            for k in range(num_preferences):
+                labels[k] = float((i + k) % 2)
+            self.samples.append({"labels": labels})
+        # Stride/seq_len attrs so print_dataset_stats-style code can read them.
+        self.stride = 1
+        self.seq_len = seq_len
+        self.preload_time_s = 0.0
+
+    def __len__(self):
+        return self.n
+
+    def _make_traj(self):
+        T, H = self.T, self.H
+        return {
+            "third_person": torch.randint(0, 256, (T, 3, H, H), dtype=torch.uint8),
+            "wrist": torch.randint(0, 256, (T, 3, H, H), dtype=torch.uint8),
+            "padding_mask": torch.zeros(T, dtype=torch.bool),
+            "proprio": torch.zeros(T, self.proprio_dim, dtype=torch.float32),
+        }
+
+    def __getitem__(self, idx):
+        labels = self.samples[idx]["labels"].clone()
+        return {
+            "traj_a": self._make_traj(),
+            "traj_b": self._make_traj(),
+            "labels": labels,
+            "succeeded_a": torch.tensor(int(labels[0].item() == 1.0), dtype=torch.int8),
+            "succeeded_b": torch.tensor(int(labels[0].item() == 0.0), dtype=torch.int8),
+            "session": "dummy",
+        }
+
+
 class OpenPreferenceDataset(Dataset):
     """Wraps a PreferenceDataset, exploding K-axis samples into per-axis samples.
 
     Each multi-axis sample (with K preference labels) becomes up to K single-axis
     samples, each containing the axis name and a scalar preference label.
-    Axes with label 0.5 (equal/unlabeled) are skipped.
+    When `skip_equal=True`, axes with label 0.5 (equal/unlabeled) are skipped,
+    which is required when training with equal_weight == 0 to avoid all-equal
+    per-rank batches that produce a loss with no grad_fn.
     """
 
-    def __init__(self, base_dataset, preference_keys: list[str]):
+    def __init__(self, base_dataset, preference_keys: list[str], skip_equal: bool = False):
         self.base = base_dataset
         self.preference_keys = preference_keys
+        self.skip_equal = skip_equal
         self.items = []  # (base_idx, axis_idx, axis_name)
         for i, sample in enumerate(base_dataset.samples):
             labels = sample["labels"]
             for k, key in enumerate(preference_keys):
+                if skip_equal and float(labels[k]) == 0.5:
+                    continue
                 self.items.append((i, k, key))
 
     def __len__(self):
