@@ -17,7 +17,7 @@ export PIPELINE_DIR="pipeline_output_pickplace_2obj_fixed_rhp"
 export WANDB_PROJECT="pickplace_2obj_fixed_rhp"
 export BASE_POLICY_DIR="base_policy_pickplace_2obj_fixed"
 export IS_CONDITIONED_EVAL=true
-export DISCRETE_CONDITIONING=true
+export DISCRETE_CONDITIONING=false
 
 # 2-object variant: keep Bread + Can in the scene, clear Milk + Cereal.
 export N_ACTIVE_OBJECTS=2
@@ -48,12 +48,18 @@ export REWARD_AXES="order_reward,bread_placed,can_placed,bread_drop,can_drop"
 export NUM_REWARD_DIMS=5
 export REWARD_EPOCHS=40
 export COND_POLICY_EPOCHS=1500
+# Conditioning-noise augmentation. Adds uniform [-AUGMENT_SCORE, +AUGMENT_SCORE]
+# noise to the appended reward dims at sample time and re-rounds to the same
+# 0.1 buckets — so each (state, action) pair sometimes gets re-labeled with an
+# adjacent bucket. 0.0 disables. 0.1 (a full bucket width) is the natural
+# starting point; raise to broaden the conditioning support seen in training.
+export AUGMENT_SCORE=0.1
 # Rollout/eval frequency (every N epochs). Larger = faster training, fewer checkpoints.
-export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_every=100 ++training.checkpoint_every=100"
+export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_every=100 ++training.checkpoint_every=100 ++augment_score=${AUGMENT_SCORE}"
 
 # Eval z-score conditioning. Positive = best on every axis, negative = worst.
-export EVAL_Z_POSITIVE="[0.9,0.9,0.9,0.9,0.9]"
-export EVAL_Z_NEGATIVE="[-0.9,0.9,0.9,-0.9,-0.9]"
+export EVAL_Z_POSITIVE="[0.8,0.8,0.8,0.8,0.8]"
+export EVAL_Z_NEGATIVE="[-0.8,0.8,0.8,-0.8,-0.8]"
 
 export N_PAIRS=500
 
@@ -62,7 +68,7 @@ export N_PAIRS=500
 # [order, bread_p, can_p, bread_d, can_d].
 export N_ITERATIONS=3
 export N_ITER_ROLLOUTS=200
-export CONDITIONING_TARGETS="0.9,-0.9,-0.9,0.9,0.9;0.9,0.9,-0.9,0.9,0.9;0.9,0.9,0.9,0.9,0.9"
+export CONDITIONING_TARGETS="0.8,-0.8,-0.8,0.8,0.8;0.8,0.8,-0.8,0.8,0.8;0.8,0.8,0.8,0.8,0.8"
 
 export RESUME_FROM_PHASE=4
 bash scripts/run_pipeline_pickplace.sh

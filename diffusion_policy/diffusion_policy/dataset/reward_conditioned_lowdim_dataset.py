@@ -23,7 +23,8 @@ from diffusion_policy.common.sampler import (
 from diffusion_policy.common.normalize_util import (
     get_identity_normalizer_from_stat,
     get_range_normalizer_from_stat,
-    array_to_stats
+    pickplace_masked_range_scale_offset,
+    array_to_stats,
 )
 from diffusion_policy.model.common.rotation_transformer import RotationTransformer
 
@@ -75,11 +76,19 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
             val_ratio: float = 0.0,
             max_train_episodes: int = None,
             n_active_objects: int = 4,  # PickPlace: zero out inactive object slots in obs
+            augment_score: float = 0.0,  # Uniform [-augment_score, +augment_score] noise added to conditioning dims at sample time (continuous only).
             **kwargs,  # absorb extra keys from base task config (dataset_path, abs_action, etc.)
         ):
         self.n_active_objects = int(n_active_objects)
+        self.augment_score = float(augment_score)
+        self.discrete_conditioning = bool(discrete_conditioning)
         self.obs_keys = list(obs_keys)
         obs_keys = list(obs_keys)
+        if self.augment_score > 0.0 and self.discrete_conditioning:
+            print(f"[RewardConditionedLowdimDataset] WARNING: augment_score="
+                  f"{self.augment_score} ignored because discrete_conditioning=True "
+                  f"(noise on a one-hot vector breaks the encoding). Use "
+                  f"discrete_conditioning=False to enable score noise.")
 
         # Load scores (z-score normalized)
         with open(scores_path, 'r') as f:
@@ -257,6 +266,8 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
             pad_after=self.pad_after,
             episode_mask=~self.train_mask)
         val_set.train_mask = ~self.train_mask
+        # Conditioning-noise augmentation is a training-only regulariser.
+        val_set.augment_score = 0.0
         return val_set
 
     def get_normalizer(self, **kwargs) -> LinearNormalizer:
@@ -270,65 +281,20 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
         action_stat = array_to_stats(self.replay_buffer['action'])
         normalizer['action'] = get_range_normalizer_from_stat(action_stat)
 
-        # Obs: normalize the base obs dims with per-dim range scaling, and
-        # leave the appended conditioning dims with an identity transform
-        # (they're already z-scores). The previous implementation used a
-        # SINGLE global max-abs scalar for the whole base obs vector — which
-        # let off-table parked objects at xy≈10 dominate `max_abs` and squash
-        # the active-object position dims to ~0.01, creating a large
-        # train-test gap. Per-dim min/max scaling restores per-dim signal.
+        # Obs: per-dim range scaling for the base obs (with PickPlace masks
+        # applied via the shared helper), identity for the appended z-score
+        # conditioning dims.
         all_obs = self.replay_buffer['obs']  # (total_steps, D+C)
         D = all_obs.shape[-1] - self.conditioning_dims
-
         obs_base = all_obs[:, :D]
         base_stat = array_to_stats(obs_base)
-        base_normalizer = get_range_normalizer_from_stat(base_stat)
-        base_sd = base_normalizer.state_dict()
-        base_scale = base_sd['params_dict.scale'].cpu().numpy().copy()
-        base_offset = base_sd['params_dict.offset'].cpu().numpy().copy()
-
-        # Explicitly mask the four high-scale active-object quat dims that
-        # otherwise amplify tiny physics noise enormously (per training-set
-        # range → scale: Can.q.z=0.0012→1693, eef_q.w=0.014→144,
-        # Can.q.y=0.022→91, Bread.q.z=0.040→50). These all have near-zero
-        # signal across demos so killing them is a safe denoise.
-        # Indices match the obs layout for PickPlace (4 obj × 14 + eef +
-        # gripper). Only applied if obs has the PickPlace 65-dim base.
-        HIGH_SCALE_MASK_DIMS = {
-            48,   # Can.q.z
-            59,   # eef_q.w
-            47,   # Can.q.y
-            20,   # Bread.q.z
-        }
-        if D >= 56 and len(self.obs_keys) > 0 and self.obs_keys[0] == 'object':
-            for d in HIGH_SCALE_MASK_DIMS:
-                if 0 <= d < D:
-                    base_scale[d] = 0.0
-                    base_offset[d] = 0.0
-            print(f"[normalizer] explicit-mask {sorted(HIGH_SCALE_MASK_DIMS)} "
-                  f"→ scale=0, offset=0 (Can.q.z, eef_q.w, Can.q.y, Bread.q.z)")
-
-        # PickPlace specific: when fewer than 4 objects are active in the
-        # scene, the inactive object_ids are determined by the right-first
-        # canonical order. Their 14-dim slots in `object` are populated by
-        # `clear_objects` (parked off-table) and drift over time — which
-        # makes the normalized obs differ between train and eval. Force
-        # those slots to (scale=0, offset=0) so they always normalize to 0
-        # regardless of input. Inferred from obs schema: PickPlace `object`
-        # is 56 dims = 4 × 14, and the obs starts with the 'object' key.
-        # Only apply when obs_keys begins with 'object' AND base dims ≥ 56.
-        if (D >= 56 and self.n_active_objects < 4
-                and len(self.obs_keys) > 0 and self.obs_keys[0] == 'object'):
-            # Right-first canonical order: Bread(1), Can(3), Milk(0), Cereal(2)
-            canonical_order = [1, 3, 0, 2]
-            active_ids = set(canonical_order[:self.n_active_objects])
-            inactive_ids = [i for i in range(4) if i not in active_ids]
-            for obj_id in inactive_ids:
-                base_scale[obj_id * 14: obj_id * 14 + 14] = 0.0
-                base_offset[obj_id * 14: obj_id * 14 + 14] = 0.0
-            print(f"[normalizer] n_active_objects={self.n_active_objects} → "
-                  f"zeroing obs slots for inactive object ids {inactive_ids} "
-                  f"(dims {[(i*14, i*14+14) for i in inactive_ids]})")
+        obs_starts_with_object = (
+            len(self.obs_keys) > 0 and self.obs_keys[0] == 'object')
+        base_scale, base_offset = pickplace_masked_range_scale_offset(
+            base_stat,
+            n_active_objects=self.n_active_objects,
+            obs_starts_with_object=obs_starts_with_object,
+        )
 
         # Reward dims: identity (z-scores pass through).
         reward_scale = np.ones(self.conditioning_dims, dtype=np.float32)
@@ -354,5 +320,27 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         data = self.sampler.sample_sequence(idx)
+        # Conditioning-noise augmentation: noise is added BEFORE re-rounding
+        # to the same 0.1 buckets used at construction, so each (state, action)
+        # pair sometimes gets re-labeled with an adjacent bucket — randomising
+        # the bucket assignment rather than smoothing within a bucket.
+        # Skipped for one-hot conditioning (would corrupt the encoding) and
+        # for the validation set (augment_score is zeroed on the val copy).
+        # IMPORTANT: sampler.sample_sequence returns a numpy VIEW into the
+        # replay buffer when no padding is needed (sampler.py:129). Mutating
+        # `data['obs']` in-place would permanently corrupt the buffer, so we
+        # copy before writing.
+        if (self.augment_score > 0.0
+                and not self.discrete_conditioning
+                and self.conditioning_dims > 0
+                and 'obs' in data):
+            obs = data['obs'].copy()
+            cond = obs[..., -self.conditioning_dims:]
+            noise = np.random.uniform(-self.augment_score, self.augment_score,
+                                      size=cond.shape).astype(obs.dtype)
+            new_cond = np.round((cond + noise) * 10) / 10
+            new_cond = np.clip(new_cond, -1.0, 1.0)
+            obs[..., -self.conditioning_dims:] = new_cond.astype(obs.dtype)
+            data['obs'] = obs
         torch_data = dict_apply(data, torch.from_numpy)
         return torch_data

@@ -321,3 +321,81 @@ def compute_axes(axis_names, obs, actions=None, reward_series=None):
             raise KeyError(f"Unknown reward axis '{name}'. Known: {list(AXIS_FUNCTIONS.keys())}")
         out[name] = float(fn(obs, actions=actions, reward_series=reward_series))
     return out
+
+
+# ----------------------------------------------------------------------------
+# PickPlace per-axis eval-logging helpers
+# ----------------------------------------------------------------------------
+# Object id → name (matches the slot order in the 56-dim 'object' obs block).
+PICKPLACE_OBJECT_NAMES = {0: 'milk', 1: 'bread', 2: 'cereal', 3: 'can'}
+
+
+def get_pickplace_eval_axes(n_active_objects):
+    """Canonical per-axis eval-logging set for a PickPlace variant:
+    order_reward + per-active-object placed + per-active-object drop. Active
+    subset is the right-first canonical prefix (Bread, Can, Milk, Cereal).
+    """
+    n = max(1, min(int(n_active_objects), 4))
+    active_ids = PICKPLACE_CANONICAL_ORDER[:n]
+    axes = ['order_reward']
+    axes += [f'{PICKPLACE_OBJECT_NAMES[i]}_placed' for i in active_ids]
+    axes += [f'{PICKPLACE_OBJECT_NAMES[i]}_drop' for i in active_ids]
+    return axes
+
+
+def compute_pickplace_eval_log(obs_seqs, action_seqs, prefixes,
+                               n_active_objects, axis_names=None):
+    """Aggregate per-axis reward values + strict-success across rollouts.
+
+    Args:
+      obs_seqs:    list of (T_i, D) np.ndarray per rollout
+      action_seqs: list of (T_i, A) np.ndarray per rollout
+      prefixes:    list of str per rollout (e.g. 'test/', 'train/')
+      n_active_objects: used for strict_success bookkeeping
+      axis_names: list of base axes to log. If None, derived from
+                  get_pickplace_eval_axes(n_active_objects).
+
+    Returns dict {prefix + key: mean_value} with one entry per (prefix, axis)
+    plus '{prefix}mean_strict_success' (positive order AND every per-object
+    *_drop axis > 0) when the relevant axes are present.
+    """
+    import collections
+    if axis_names is None:
+        axis_names = get_pickplace_eval_axes(n_active_objects)
+
+    axis_accum = {ax: collections.defaultdict(list) for ax in axis_names}
+    strict_drop_axes = [ax for ax in axis_names
+                        if ax.endswith('_drop') and ax != 'drop_reward']
+    strict_axes_available = ('order_reward' in axis_names
+                             and len(strict_drop_axes) > 0)
+    prefix_strict = collections.defaultdict(list)
+
+    for obs_seq, act_seq, prefix in zip(obs_seqs, action_seqs, prefixes):
+        if obs_seq is None or len(obs_seq) == 0:
+            continue
+        rollout_vals = {}
+        for ax in axis_names:
+            fn = AXIS_FUNCTIONS.get(ax)
+            if fn is None:
+                continue
+            try:
+                v = float(fn(obs_seq, actions=act_seq))
+            except Exception:
+                v = 0.0
+            axis_accum[ax][prefix].append(v)
+            rollout_vals[ax] = v
+        if strict_axes_available:
+            order_ok = rollout_vals.get('order_reward', 0.0) >= 1.0 - 1e-6
+            drops_ok = all(rollout_vals.get(ax, 0.0) > 0
+                           for ax in strict_drop_axes)
+            prefix_strict[prefix].append(float(order_ok and drops_ok))
+
+    log_data = {}
+    for ax, by_prefix in axis_accum.items():
+        for prefix, vals in by_prefix.items():
+            if vals:
+                log_data[prefix + ax] = float(np.mean(vals))
+    for prefix, vals in prefix_strict.items():
+        if vals:
+            log_data[prefix + 'mean_strict_success'] = float(np.mean(vals))
+    return log_data

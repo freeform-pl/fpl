@@ -31,6 +31,18 @@ class PickPlaceLowdimRunner(RobomimicLowdimRunner):
     """Runner for the PickPlace 4-object benchmark."""
 
     def __init__(self, **kwargs):
+        # Pop PickPlace-specific kwargs before forwarding to RobomimicLowdimRunner,
+        # which has a strict signature that doesn't accept them.
+        quadrant_placement = kwargs.pop('quadrant_placement', True)
+        quadrant_noise = kwargs.pop('quadrant_noise', 0.03)
+        settle_steps = kwargs.pop('settle_steps', 40)
+        n_active_objects = kwargs.pop('n_active_objects', 4)
+        # `use_pickplace_wrapper` is sometimes passed as a flag by the pipeline
+        # to select this runner — it has no effect inside the runner itself but
+        # would otherwise break the super().__init__ call.
+        kwargs.pop('use_pickplace_wrapper', None)
+        self.n_active_objects = int(n_active_objects)
+
         super().__init__(**kwargs)
 
         import robomimic.utils.file_utils as FileUtils
@@ -48,11 +60,6 @@ class PickPlaceLowdimRunner(RobomimicLowdimRunner):
         n_obs_steps = kwargs.get('n_obs_steps', 2)
         n_action_steps = kwargs.get('n_action_steps', 8)
         n_latency_steps = kwargs.get('n_latency_steps', 0)
-        quadrant_placement = kwargs.get('quadrant_placement', True)
-        quadrant_noise = kwargs.get('quadrant_noise', 0.03)
-        settle_steps = kwargs.get('settle_steps', 40)
-        n_active_objects = kwargs.get('n_active_objects', 4)
-        self.n_active_objects = int(n_active_objects)
 
         robosuite_fps = 20
         steps_per_render = max(robosuite_fps // fps, 1)

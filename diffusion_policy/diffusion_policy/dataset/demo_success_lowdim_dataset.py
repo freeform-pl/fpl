@@ -18,7 +18,9 @@ from diffusion_policy.common.sampler import (
     SequenceSampler, get_val_mask, downsample_mask)
 from diffusion_policy.common.normalize_util import (
     get_identity_normalizer_from_stat,
-    array_to_stats
+    get_range_normalizer_from_stat,
+    pickplace_masked_range_scale_offset,
+    array_to_stats,
 )
 
 
@@ -48,45 +50,54 @@ class DemoSuccessLowdimDataset(BaseLowdimDataset):
             seed: int = 42,
             val_ratio: float = 0.0,
             max_train_episodes: int = None,
+            n_active_objects: int = 4,  # PickPlace: zero out inactive object slots in obs
             **kwargs,
         ):
+        self.n_active_objects = int(n_active_objects)
+        self.obs_keys = list(obs_keys)
         obs_keys = list(obs_keys)
         replay_buffer = ReplayBuffer.create_empty_numpy()
 
         n_rollouts_total = 0
         n_rollouts_success = 0
 
-        # Load rollout data — only successful episodes
-        data = np.load(rollout_data_path)
-        rollout_obs = data['obs']
-        rollout_actions = data['actions']
-        rollout_lengths = data['episode_lengths']
-        success = data['success']
+        # Load rollout data — only successful episodes. Skip entirely when
+        # rollout_data_path is unset / "none" (demos-only mode).
+        has_rollouts = bool(rollout_data_path) and rollout_data_path.strip() != 'none'
+        rollout_action_dim = None
+        if has_rollouts:
+            data = np.load(rollout_data_path)
+            rollout_obs = data['obs']
+            rollout_actions = data['actions']
+            rollout_lengths = data['episode_lengths']
+            success = data['success']
+            rollout_action_dim = rollout_actions.shape[-1]
 
-        for i in tqdm(range(len(rollout_obs)), desc="Loading successful rollouts"):
-            n_rollouts_total += 1
-            if success[i] < 1.0:
-                continue
-            n_rollouts_success += 1
+            for i in tqdm(range(len(rollout_obs)), desc="Loading successful rollouts"):
+                n_rollouts_total += 1
+                if success[i] < 1.0:
+                    continue
+                n_rollouts_success += 1
 
-            L_obs = int(rollout_lengths[i])
-            L_act = min(L_obs - 1, rollout_actions.shape[1])
-            if L_act <= 0:
-                continue
+                L_obs = int(rollout_lengths[i])
+                L_act = min(L_obs - 1, rollout_actions.shape[1])
+                if L_act <= 0:
+                    continue
 
-            obs_i = rollout_obs[i, :L_obs].astype(np.float32)
-            act_i = rollout_actions[i, :L_act].astype(np.float32)
-            L = min(len(obs_i), L_act)
+                obs_i = rollout_obs[i, :L_obs].astype(np.float32)
+                act_i = rollout_actions[i, :L_act].astype(np.float32)
+                L = min(len(obs_i), L_act)
 
-            replay_buffer.add_episode({
-                'obs': obs_i[:L],
-                'action': act_i[:L],
-            })
+                replay_buffer.add_episode({
+                    'obs': obs_i[:L],
+                    'action': act_i[:L],
+                })
 
-        print(f"Rollouts: {n_rollouts_success}/{n_rollouts_total} successful")
+            print(f"Rollouts: {n_rollouts_success}/{n_rollouts_total} successful")
+        else:
+            print("Rollouts: SKIPPED (rollout_data_path='none' — demos-only mode)")
 
         # Load original demo data
-        rollout_action_dim = rollout_actions.shape[-1]
         rotation_transformer = RotationTransformer(
             from_rep='axis_angle', to_rep='rotation_6d')
 
@@ -154,11 +165,27 @@ class DemoSuccessLowdimDataset(BaseLowdimDataset):
     def get_normalizer(self, **kwargs) -> LinearNormalizer:
         normalizer = LinearNormalizer()
 
+        # Action: per-dim range normalizer (matches reward_conditioned setup).
         action_stat = array_to_stats(self.replay_buffer['action'])
-        normalizer['action'] = get_identity_normalizer_from_stat(action_stat)
+        normalizer['action'] = get_range_normalizer_from_stat(action_stat)
 
-        obs_stat = array_to_stats(self.replay_buffer['obs'])
-        normalizer['obs'] = normalizer_from_stat(obs_stat)
+        # Obs: per-dim range scaling with PickPlace masks applied via the
+        # shared helper (zeros 4 high-amplifying quat dims and the inactive
+        # object slots when n_active_objects < 4).
+        all_obs = self.replay_buffer['obs']
+        obs_stat = array_to_stats(all_obs)
+        obs_starts_with_object = (
+            len(self.obs_keys) > 0 and self.obs_keys[0] == 'object')
+        scale, offset = pickplace_masked_range_scale_offset(
+            obs_stat,
+            n_active_objects=self.n_active_objects,
+            obs_starts_with_object=obs_starts_with_object,
+        )
+        normalizer['obs'] = SingleFieldLinearNormalizer.create_manual(
+            scale=scale,
+            offset=offset,
+            input_stats_dict=obs_stat,
+        )
 
         return normalizer
 
