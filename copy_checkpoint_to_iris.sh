@@ -28,7 +28,7 @@ SRC_BASE=/hai/scratch/marcelto/reward_learning/openpi/checkpoints/pi05_droid_fin
 SRC_PATH="$SRC_BASE/$FOLDER/$CKPT"
 
 DEST_USER_HOST=marcelto@iris-ws-7.stanford.edu
-DEST_BASE=/iris/u/marcelto/reward_learning_old/reward_learning/checkpoints
+DEST_BASE=/iris/u/marcelto/reward_learning/checkpoints
 DEST_PATH="$DEST_BASE/$FOLDER"
 
 if [ ! -d "$SRC_PATH" ]; then

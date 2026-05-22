@@ -186,6 +186,38 @@ def load_trajectories_all_offsets(
     return _trajectories_from_raw(raw, stride, seq_len, img_size, offsets, action_chunk_size)
 
 
+def auto_detect_preference_keys(preference_dirs: list, cross_dirs: list) -> list:
+    """Scan all preference JSON files and return the sorted union of keys observed.
+
+    Used when --task auto is passed: caller doesn't know the schema ahead of time
+    and wants the dataset's own labels to define the axes.
+    """
+    import glob as _glob
+    keys = set()
+    for pdir in preference_dirs or []:
+        if not os.path.isdir(pdir):
+            continue
+        for session in os.listdir(pdir):
+            pf = os.path.join(pdir, session, "preference.json")
+            if not os.path.exists(pf):
+                continue
+            try:
+                with open(pf) as f:
+                    keys.update(json.load(f).get("preferences", {}).keys())
+            except Exception:
+                pass
+    for cdir in cross_dirs or []:
+        if not os.path.isdir(cdir):
+            continue
+        for cf in _glob.glob(os.path.join(cdir, "preference_*.json")):
+            try:
+                with open(cf) as f:
+                    keys.update(json.load(f).get("preferences", {}).keys())
+            except Exception:
+                pass
+    return sorted(keys)
+
+
 def parse_preference_labels(preferences: dict, preference_keys: list) -> torch.Tensor:
     """
     Convert preference dict to a float tensor of shape (K,).
@@ -404,15 +436,20 @@ def make_datasets(
     action_chunk_size: int = 0,
     preload_offsets: int = 5,
     only_large: bool = False,
+    preference_keys: Optional[list] = None,
 ) -> tuple[PreferenceDataset, PreferenceDataset]:
     """
     Randomly assign val_fraction of preference sessions to validation and the
     rest to training. Each session's trajectories are kept whole — no timestep
     from a validation trajectory is ever seen during training.
+
+    If preference_keys is provided it overrides the TASKS lookup (used for
+    --task auto, where keys come from the data itself).
     """
-    if task not in TASKS:
-        raise ValueError(f"Unknown task '{task}'. Available: {list(TASKS.keys())}")
-    preference_keys = TASKS[task]
+    if preference_keys is None:
+        if task not in TASKS:
+            raise ValueError(f"Unknown task '{task}'. Available: {list(TASKS.keys())}")
+        preference_keys = TASKS[task]
 
     roots = [preferences_dir] if isinstance(preferences_dir, str) else preferences_dir
     dirs = sorted(

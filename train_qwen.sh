@@ -37,17 +37,17 @@ conda activate qwen310
 # - Gradient checkpointing enabled
 # - lr=1e-5, cosine schedule (matching sft_qwen3_4b.sh)
 # - batch_size=2 (single GPU, 4B model)
-python main.py \
-    --model qwen_open \
-    --stride 20 --seq_len 20 --img_size 128 \
-    --batch_size 32 --epochs 1000 \
-    --lr 1e-5 \
-    --equal_weight 0.0 \
-    --preload --preload_offsets 10 \
-    --eval_interval 50 --vis_interval 999999 --log_interval 1 --save_interval 50 \
-    --preferences_dir "${DATA_AM208}/preferences_setup" \
-    --cross_preferences_dir "${DATA_ABHIJNYA}/cross_preferences_setup,${DATA_AM208}/cross_preferences_setup" \
-    --task setup_table
+# python main.py \
+#     --model qwen_open \
+#     --stride 20 --seq_len 20 --img_size 128 \
+#     --batch_size 32 --epochs 1000 \
+#     --lr 1e-5 \
+#     --equal_weight 0.0 \
+#     --preload --preload_offsets 10 \
+#     --eval_interval 50 --vis_interval 999999 --log_interval 1 --save_interval 50 \
+#     --preferences_dir "${DATA_AM208}/preferences_setup" \
+#     --cross_preferences_dir "${DATA_ABHIJNYA}/cross_preferences_setup,${DATA_AM208}/cross_preferences_setup" \
+#     --task setup_table
 
 
 # python main.py \
@@ -60,3 +60,15 @@ python main.py \
 #     --preferences_dir "${DATA_AM208}/preferences_setup" \
 #     --cross_preferences_dir "${DATA_ABHIJNYA}/cross_preferences_setup,${DATA_AM208}/cross_preferences_setup" \
 #     --task setup_table
+
+python main.py \
+    --model qwen_open \
+    --stride 20 --seq_len 20 --img_size 128 \
+    --batch_size 32 --epochs 1000 \
+    --lr 1e-5 \
+    --equal_weight 0.0 \
+    --preload --preload_offsets 10 \
+    --eval_interval 50 --vis_interval 999999 --log_interval 1 --save_interval 50 \
+    --preferences_dir "${DATA_AM208}/preferences_setup" \
+    --cross_preferences_dir "${DATA_ABHIJNYA}/cross_preferences_setup,${DATA_AM208}/cross_preferences_setup" \
+    --task setup_table

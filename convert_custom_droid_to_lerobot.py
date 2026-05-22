@@ -218,6 +218,11 @@ def main(args: Args):
         local_tmp = Path(tempfile.mkdtemp(prefix="lerobot_convert_"))
         print(f"\n=== Using /tmp: {local_tmp} ===")
 
+    # Per-process staging dir for HDF5 copies — avoids basename collisions
+    # between concurrent conversion jobs sharing the same local_tmp/scr.
+    hdf5_stage = Path(tempfile.mkdtemp(prefix="hdf5_stage_", dir=local_tmp))
+    print(f"  HDF5 staging: {hdf5_stage}")
+
     # Point HF_LEROBOT_HOME to local disk for output
     local_lerobot_home = local_tmp / "lerobot_output"
     local_lerobot_home.mkdir(exist_ok=True)
@@ -312,7 +317,7 @@ def main(args: Args):
 
         # Copy HDF5 to local disk for fast reads
         t0 = time.time()
-        local_hdf5 = Path(tempfile.gettempdir()) / source_hdf5.name
+        local_hdf5 = hdf5_stage / source_hdf5.name
         shutil.copy2(source_hdf5, local_hdf5)
         t_copy_file = time.time() - t0
         t_copy += t_copy_file
@@ -523,7 +528,9 @@ def main(args: Args):
     shutil.copytree(local_output_path, final_output_path)
     print(f"  Copied in {time.time() - t0:.1f}s")
 
-    # Only clean up if using /tmp (not /scr, which we keep for reuse)
+    # Always remove the per-job HDF5 staging dir; only blow away local_tmp
+    # itself when it's the /tmp fallback (we keep /scr around for reuse).
+    shutil.rmtree(hdf5_stage, ignore_errors=True)
     if not scr_dir.exists():
         shutil.rmtree(local_tmp, ignore_errors=True)
     print(f"\nDone! Converted {total_episodes} episodes, skipped {skipped} -> {final_output_path}")

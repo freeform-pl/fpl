@@ -5,4 +5,5 @@ TASKS = {
     "single": ["Overall quality"],
     "setup_table": ['Quality of placement of big plate','Quality of placement of small plate','Quality of placement of cup','Quality of placement of cutlery','Smoothness / carefulness','Speed','Formality of setup','Damage to environment'],
     "setup_table_reduced": ['Quality of placement of big plate','Quality of placement of small plate','Quality of placement of cup','Quality of placement of cutlery','Formality of setup'],
+    "plate_toast": ["speed", "smooth", "destroying the toast", "hygiene", "quality of plating"],
 }

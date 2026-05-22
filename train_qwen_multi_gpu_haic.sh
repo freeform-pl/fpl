@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=models
-#SBATCH --partition=hai
+#SBATCH --partition=yejin-lo
 #SBATCH --qos=models
 #SBATCH --time=120:00:00
 #SBATCH --nodes=1
@@ -88,6 +88,24 @@ MASTER_PORT=$((20000 + RANDOM % 20000))
 #     --task setup_table
 
 
+# torchrun \
+#     --standalone \
+#     --nnodes=1 \
+#     --nproc_per_node=$NUM_GPUS \
+#     --master_port=$MASTER_PORT \
+#     main.py \
+#     --model qwen_open \
+#     --stride 5 --seq_len 80 --img_size 128 \
+#     --batch_size 8 --epochs 1000 \
+#     --lr 1e-5 \
+#     --equal_weight 0.0 \
+#     --preload --preload_offsets 5 \
+#     --eval_interval 50 --vis_interval 999999 --small_vis_interval 200 --log_interval 1 --save_interval 1000 \
+#     --preferences_dir "${DATA_AM208}/droid-robot/preferences_setup" \
+#     --cross_preferences_dir "${DATA_ABHIJNYA}/droid-robot/cross_preferences_setup,${DATA_AM208}/droid-robot/cross_preferences_setup" \
+#     --task setup_table
+
+
 torchrun \
     --standalone \
     --nnodes=1 \
@@ -101,6 +119,4 @@ torchrun \
     --equal_weight 0.0 \
     --preload --preload_offsets 5 \
     --eval_interval 50 --vis_interval 999999 --small_vis_interval 200 --log_interval 1 --save_interval 1000 \
-    --preferences_dir "${DATA_AM208}/droid-robot/preferences_setup" \
-    --cross_preferences_dir "${DATA_ABHIJNYA}/droid-robot/cross_preferences_setup,${DATA_AM208}/droid-robot/cross_preferences_setup" \
-    --task setup_table
+    --cross_preferences_dir "${DATA_AM208}/droid-robot/cross_preferences_burger"

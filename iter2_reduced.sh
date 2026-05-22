@@ -56,8 +56,8 @@ TASK_PROMPT="set up the table"
 WANDB_PROJ=2026-05-17_00-26-30_qwen_open_j77850
 ITER=6000
 CKPT=exp/${WANDB_PROJ}/checkpoints/step00${ITER}.pt
-RUN_TAG=${WANDB_PROJ}_${ITER}_iter2_reduced
-TASK=setup_table_reduced
+RUN_TAG=${WANDB_PROJ}_${ITER}_iter2_reduced_fixed
+TASK=single
 OUTPUT_SUBDIR=${TASK}_iter2_single_qwen
 DECIMAL_PLACES=1
 ITER_TAG=iter2_${ITER}
@@ -78,11 +78,11 @@ conda activate qwen310
 
 echo "=== [infer] Python: $(which python) ==="
 
-python infer.py \
-    --ckpt "$CKPT" \
-    --preferences_dir "${DATA_AM208}/preferences_setup,${DATA_ABHIJNYA}/demos/table_setup" \
-    --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
-    --task "$TASK"
+# python infer.py \
+#     --ckpt "$CKPT" \
+#     --preferences_dir "${DATA_AM208}/preferences_setup,${DATA_ABHIJNYA}/demos/table_setup" \
+#     --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
+#     --task "$TASK"
 
 "$OPENPI_PY" convert_custom_droid_to_lerobot.py \
     --args.scores_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \

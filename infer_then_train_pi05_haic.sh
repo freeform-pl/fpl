@@ -40,28 +40,21 @@ fi
 OPENPI_DIR="$REWARD_LEARNING_DIR/openpi"
 OPENPI_PY="$OPENPI_DIR/.venv/bin/python"
 
-launch multi preferences set up table reduced (only iter 2 + iter 3 demos) [marcel]
-launch single preferences set up table reduced (only iter 2 + iter 3 demos) [marcel]
-launch multi preferences set up table reduced (only iter 2 on reward model of iter2) [marcel]
-launch single preferences set up table reduced (only iter 2 on reward model of iter2) [marcel]
-launch multi preferences set up table reduced (only iter 3 demos) [marcel]
-launch single preferences set up table reduced (only iter 3demos) [marcel]
-
-CKPT=exp/2026-05-17_22-32-48_qwen_open_j77969/checkpoints/step002500.pt
-RUN_TAG=2026-05-17_22-32-48_qwen_open_j77969_2500
-OUTPUT_SUBDIR=setup_table_iter3_multi_qwen_longer_sequence
+CKPT=exp/2026-05-21_01-11-51_qwen_open_j78697/checkpoints/step002000.pt
+RUN_TAG=2026-05-21_01-11-51_qwen_open_j78697_2000
+OUTPUT_SUBDIR=plate_toast_iter0_multi_qwen
 DECIMAL_PLACES=1
-ITER_TAG=iter3_2500
-TASK=setup_table
-TASK_PROMPT="set up the table"
+ITER_TAG=iter0_2000
+TASK=plate_toast
+TASK_PROMPT="put the toast in the plate"
 
-CKPT=exp/2026-05-17_00-26-30_qwen_open_j77850/checkpoints/step006000.pt
-RUN_TAG=2026-05-17_00-26-30_qwen_open_j77850_6000_fixed_full150
-OUTPUT_SUBDIR=setup_table_iter3_single_qwen
-DECIMAL_PLACES=1
-ITER_TAG=iter3_6000
-TASK=setup_table
-TASK_PROMPT="set up the table"
+# CKPT=exp/2026-05-17_00-26-30_qwen_open_j77850/checkpoints/step006000.pt
+# RUN_TAG=2026-05-17_00-26-30_qwen_open_j77850_6000_fixed_full150
+# OUTPUT_SUBDIR=setup_table_iter3_single_qwen
+# DECIMAL_PLACES=1
+# ITER_TAG=iter3_6000
+# TASK=setup_table
+# TASK_PROMPT="set up the table"
 
 # CKPT=exp/2026-05-17_00-26-30_qwen_open_j77849/checkpoints/step010000.pt
 # RUN_TAG=2026-05-17_00-26-30_qwen_open_j77849_10000_fixed_full150
@@ -86,21 +79,21 @@ echo "=== [infer] Python: $(which python) ==="
 
 # python infer.py \
 #     --ckpt "$CKPT" \
-#     --preferences_dir "${DATA_AM208}/preferences_setup,${DATA_ABHIJNYA}/demos/table_setup" \
-#     --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}"
-#     # --task "$TASK"
+#     --preferences_dir "${DATA_AM208}/demos/burger/" \
+#     --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
+#     --task "$TASK"
 
-python infer.py \
-    --ckpt "$CKPT" \
-    --preferences_dir "${DATA_AM208}/preferences_setup,${DATA_AM208}/demos/setup,${DATA_ABHIJNYA}/demos/table_setup" \
-    --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}"
+# # python infer.py \
+# #     --ckpt "$CKPT" \
+# #     --preferences_dir "${DATA_AM208}/preferences_setup,${DATA_AM208}/demos/setup,${DATA_ABHIJNYA}/demos/table_setup" \
+# #     --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}"
 
-"$OPENPI_PY" convert_custom_droid_to_lerobot.py \
-    --args.scores_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
-    --args.repo_name "$DATASET_REPO_ID" \
-    --args.task_prompt "$TASK_PROMPT" \
-    --args.score_type standardized \
-    --args.decimal_places "$DECIMAL_PLACES"
+# "$OPENPI_PY" convert_custom_droid_to_lerobot.py \
+#     --args.scores_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
+#     --args.repo_name "$DATASET_REPO_ID" \
+#     --args.task_prompt "$TASK_PROMPT" \
+#     --args.score_type standardized \
+#     --args.decimal_places "$DECIMAL_PLACES"
 
 conda deactivate
 

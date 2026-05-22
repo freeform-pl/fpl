@@ -26,7 +26,7 @@ import wandb
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from dataset import make_datasets, print_dataset_stats, load_anchors, load_cross_preferences, OpenPreferenceDataset, DummyPreferenceDataset
+from dataset import make_datasets, print_dataset_stats, load_anchors, load_cross_preferences, OpenPreferenceDataset, DummyPreferenceDataset, PreferenceDataset, auto_detect_preference_keys
 from model import RewardModel, DiscountedRewardModel, bradley_terry_loss, bradley_terry_loss_regression, anchor_loss
 from flow_model import RewardModel as FlowRewardModel
 from qwen_model import QwenRewardModel
@@ -38,9 +38,14 @@ def parse_args():
     p = argparse.ArgumentParser()
 
     # Data
-    p.add_argument("--task", default="cube_in_three_bowls", choices=list(TASKS.keys()),
-                   help="Task name — determines which preference dimensions to use")
-    p.add_argument("--preferences_dir",type=str, default="preferences")
+    p.add_argument("--task", default="cube_in_three_bowls",
+                   choices=list(TASKS.keys()) + ["auto"],
+                   help="Task name — determines which preference dimensions to use. "
+                        "'auto' infers the preference keys from the JSONs themselves "
+                        "(union of keys observed across all preference files).")
+    p.add_argument("--preferences_dir",type=str, default="preferences",
+                   help="Comma-separated preference dirs. Pass an empty string to skip "
+                        "regular preferences and train only on --cross_preferences_dir.")
     p.add_argument("--val_fraction", type=float, default=0.2)
     p.add_argument("--stride", type=int, default=4,
                    help="Frame stride when sampling sequences from each trajectory")
@@ -443,8 +448,25 @@ def main():
     # ------------------------------------------------------------------ #
     # Datasets
     # ------------------------------------------------------------------ #
-    preference_keys = TASKS[args.task]
-    preference_dirs = args.preferences_dir.split(",")
+    preference_dirs = [d.strip() for d in args.preferences_dir.split(",") if d.strip()]
+    missing_pref_dirs = [d for d in preference_dirs if not os.path.isdir(d)]
+    if missing_pref_dirs and is_main:
+        print(f"[preferences] Skipping non-existent preference dirs: {missing_pref_dirs}",
+              flush=True)
+    preference_dirs = [d for d in preference_dirs if os.path.isdir(d)]
+    skip_preferences = len(preference_dirs) == 0
+
+    if args.task == "auto":
+        cross_dirs_for_scan = [d.strip() for d in (args.cross_preferences_dir or "").split(",") if d.strip()]
+        preference_keys = auto_detect_preference_keys(preference_dirs, cross_dirs_for_scan)
+        if not preference_keys:
+            raise ValueError("--task auto: no preference keys found in any JSON. "
+                             "Check --preferences_dir / --cross_preferences_dir.")
+        if is_main:
+            print(f"[task=auto] Detected {len(preference_keys)} preference keys: {preference_keys}",
+                  flush=True)
+    else:
+        preference_keys = TASKS[args.task]
 
     if args.debug_dummy:
         if is_main:
@@ -464,6 +486,22 @@ def main():
             num_preferences=len(preference_keys),
             seed=args.seed + 1,
         )
+    elif skip_preferences:
+        if is_main:
+            print("[preferences] --preferences_dir is empty, skipping regular preferences. "
+                  "Train/val will come from --cross_preferences_dir only.", flush=True)
+        if not args.cross_preferences_dir:
+            raise ValueError("--preferences_dir is empty but --cross_preferences_dir is not set; "
+                             "no training data available.")
+        ac = args.action_chunk_size if args.ptp else 0
+        train_ds = PreferenceDataset([], preference_keys=preference_keys, stride=args.stride,
+                                     seq_len=args.seq_len, img_size=(args.img_size, args.img_size),
+                                     training=True,  preload=args.preload, action_chunk_size=ac,
+                                     preload_offsets=args.preload_offsets, only_large=args.only_large)
+        val_ds   = PreferenceDataset([], preference_keys=preference_keys, stride=args.stride,
+                                     seq_len=args.seq_len, img_size=(args.img_size, args.img_size),
+                                     training=False, preload=args.preload, action_chunk_size=ac,
+                                     preload_offsets=args.preload_offsets, only_large=args.only_large)
     else:
         train_ds, val_ds = make_datasets(
             task=args.task,
@@ -477,6 +515,7 @@ def main():
             action_chunk_size=args.action_chunk_size if args.ptp else 0,
             preload_offsets=args.preload_offsets,
             only_large=args.only_large,
+            preference_keys=preference_keys if args.task == "auto" else None,
         )
 
         if is_main:
@@ -563,7 +602,21 @@ def main():
                 print(f"[cross_preferences] Episode lengths ({len(arr)} rollouts): "
                       f"min={arr.min()}  max={arr.max()}  "
                       f"mean={arr.mean():.1f}  median={np.median(arr):.1f}  std={arr.std():.1f}")
-            train_ds.samples.extend(cross_samples)
+            if skip_preferences:
+                # No regular preferences — split cross samples for train/val.
+                rng = np.random.default_rng(args.seed)
+                perm = rng.permutation(len(cross_samples))
+                n_val = max(1, int(len(cross_samples) * args.val_fraction)) if cross_samples else 0
+                val_idx   = set(perm[:n_val].tolist())
+                train_cross = [cross_samples[i] for i in range(len(cross_samples)) if i not in val_idx]
+                val_cross   = [cross_samples[i] for i in range(len(cross_samples)) if i in val_idx]
+                train_ds.samples.extend(train_cross)
+                val_ds.samples.extend(val_cross)
+                if is_main:
+                    print(f"[cross_preferences] Split into {len(train_cross)} train / "
+                          f"{len(val_cross)} val pairs")
+            else:
+                train_ds.samples.extend(cross_samples)
 
     if not args.debug_dummy:
         all_paths = set()
@@ -608,6 +661,7 @@ def main():
     # Wrap datasets for qwen_open (per-axis samples).
     # When equal_weight == 0, equal-labeled (0.5) axes contribute no gradient,
     # so we drop them to keep DDP backward well-defined on every per-rank batch.
+    axis_preference_keys = list(preference_keys)
     if args.model in ("qwen_open", "qwen_open_discounted"):
         skip_equal = (args.equal_weight == 0.0)
         train_ds = OpenPreferenceDataset(train_ds, preference_keys, skip_equal=skip_equal)
@@ -1001,7 +1055,7 @@ def main():
                 # ---- axis-sensitivity probe (open models only) ----
                 if args.model in ("qwen_open", "qwen_open_discounted"):
                     probe_mat, probe_axes = axis_sensitivity_probe(
-                        unwrapped_model, val_loader, device, TASKS[args.task]
+                        unwrapped_model, val_loader, device, axis_preference_keys
                     )
                     if probe_mat is not None:
                         spread_per_sample = probe_mat.std(axis=1)
