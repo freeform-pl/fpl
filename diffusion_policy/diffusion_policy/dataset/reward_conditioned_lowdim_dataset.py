@@ -22,6 +22,7 @@ from diffusion_policy.common.sampler import (
     SequenceSampler, get_val_mask, downsample_mask)
 from diffusion_policy.common.normalize_util import (
     get_identity_normalizer_from_stat,
+    get_range_normalizer_from_stat,
     array_to_stats
 )
 from diffusion_policy.model.common.rotation_transformer import RotationTransformer
@@ -73,8 +74,11 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
             seed: int = 42,
             val_ratio: float = 0.0,
             max_train_episodes: int = None,
+            n_active_objects: int = 4,  # PickPlace: zero out inactive object slots in obs
             **kwargs,  # absorb extra keys from base task config (dataset_path, abs_action, etc.)
         ):
+        self.n_active_objects = int(n_active_objects)
+        self.obs_keys = list(obs_keys)
         obs_keys = list(obs_keys)
 
         # Load scores (z-score normalized)
@@ -110,13 +114,23 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
         if has_rollouts:
             # Load and concatenate all rollout files
             all_rollout_obs, all_rollout_actions, all_rollout_lengths = [], [], []
+            total_rollout_eps = 0
             for rpath in rollout_paths:
                 data = np.load(rpath)
                 n = len(data['episode_lengths'])
                 all_rollout_obs.append((data['obs'][:n], data['episode_lengths']))
                 all_rollout_actions.append(data['actions'][:n])
                 all_rollout_lengths.append(data['episode_lengths'])
+                total_rollout_eps += n
                 print(f"  Loaded {n} rollouts from {rpath}")
+            if total_rollout_eps != len(rollout_z):
+                raise ValueError(
+                    f"Rollout count mismatch between rollouts.npz files "
+                    f"({total_rollout_eps} total episodes across {len(rollout_paths)} "
+                    f"file(s)) and scores.json rollout_scores_zscore "
+                    f"({len(rollout_z)}). Re-run Phase 3 (reward model training) "
+                    f"on the current rollout set so scores.json is fresh."
+                )
 
             # Process each file's episodes with the corresponding z-scores
             rollout_offset = 0
@@ -163,7 +177,18 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
 
         with h5py.File(demo_hdf5_path, 'r') as f:
             demos = f['data']
-            n_demos = min(len(demos), len(demo_z))
+            n_hdf5_demos = len([k for k in demos.keys() if k.startswith('demo_')])
+            n_score_demos = len(demo_z)
+            if n_hdf5_demos != n_score_demos:
+                raise ValueError(
+                    f"Demo count mismatch between demos.hdf5 ({n_hdf5_demos}) "
+                    f"and scores.json ({n_score_demos}). The reward model was "
+                    f"trained on a different demo set than is being loaded here. "
+                    f"Re-run Phase 3 (reward model training) on the current "
+                    f"demos.hdf5 ({demo_hdf5_path}) so scores.json is fresh, "
+                    f"or point scores_path={scores_path} to a matching file."
+                )
+            n_demos = n_hdf5_demos
             for i in tqdm(range(n_demos), desc="Loading demo episodes"):
                 demo = demos[f'demo_{i}']
                 obs_parts = [demo['obs'][key][:].astype(np.float32) for key in obs_keys]
@@ -237,45 +262,81 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
     def get_normalizer(self, **kwargs) -> LinearNormalizer:
         normalizer = LinearNormalizer()
 
-        # Action: identity normalizer (already normalized actions from policy)
+        # Action: per-dim range normalizer. Actions are 10D
+        # [pos(3) + rot6d(6) + gripper(1)]. The position dims are in
+        # world-frame meters (~0.1-0.3) so an identity normalizer made the
+        # MSE loss heavily favor position errors over rot6d/gripper errors.
+        # Per-dim range scaling balances the loss across action components.
         action_stat = array_to_stats(self.replay_buffer['action'])
-        normalizer['action'] = get_identity_normalizer_from_stat(action_stat)
+        normalizer['action'] = get_range_normalizer_from_stat(action_stat)
 
-        # Obs: normalize first D dims normally, last conditioning dims with identity
+        # Obs: normalize the base obs dims with per-dim range scaling, and
+        # leave the appended conditioning dims with an identity transform
+        # (they're already z-scores). The previous implementation used a
+        # SINGLE global max-abs scalar for the whole base obs vector — which
+        # let off-table parked objects at xy≈10 dominate `max_abs` and squash
+        # the active-object position dims to ~0.01, creating a large
+        # train-test gap. Per-dim min/max scaling restores per-dim signal.
         all_obs = self.replay_buffer['obs']  # (total_steps, D+C)
         D = all_obs.shape[-1] - self.conditioning_dims
 
         obs_base = all_obs[:, :D]
-        obs_reward = all_obs[:, D:]
-
         base_stat = array_to_stats(obs_base)
-        reward_stat = array_to_stats(obs_reward)
-
-        # Base obs normalizer
-        base_normalizer = normalizer_from_stat(base_stat)
-        # Reward dims: identity (z-scores pass through)
-        reward_normalizer_params = get_identity_normalizer_from_stat(reward_stat)
-
-        # Combine into single normalizer for full obs
-        # We need to create a combined scale/offset
-        base_params = base_normalizer.get_output_stats()
-        # Actually, let's just create a manual combined normalizer
-        full_stat = array_to_stats(all_obs)
-
-        # Get scale/offset from base normalizer
+        base_normalizer = get_range_normalizer_from_stat(base_stat)
         base_sd = base_normalizer.state_dict()
-        # Extract scale and offset from the base normalizer
-        # SingleFieldLinearNormalizer stores params internally
-        # Easier: compute manually
-        max_abs = np.maximum(base_stat['max'].max(), np.abs(base_stat['min']).max())
-        base_scale = np.full(D, fill_value=1.0/max_abs, dtype=np.float32)
-        base_offset = np.zeros(D, dtype=np.float32)
+        base_scale = base_sd['params_dict.scale'].cpu().numpy().copy()
+        base_offset = base_sd['params_dict.offset'].cpu().numpy().copy()
 
+        # Explicitly mask the four high-scale active-object quat dims that
+        # otherwise amplify tiny physics noise enormously (per training-set
+        # range → scale: Can.q.z=0.0012→1693, eef_q.w=0.014→144,
+        # Can.q.y=0.022→91, Bread.q.z=0.040→50). These all have near-zero
+        # signal across demos so killing them is a safe denoise.
+        # Indices match the obs layout for PickPlace (4 obj × 14 + eef +
+        # gripper). Only applied if obs has the PickPlace 65-dim base.
+        HIGH_SCALE_MASK_DIMS = {
+            48,   # Can.q.z
+            59,   # eef_q.w
+            47,   # Can.q.y
+            20,   # Bread.q.z
+        }
+        if D >= 56 and len(self.obs_keys) > 0 and self.obs_keys[0] == 'object':
+            for d in HIGH_SCALE_MASK_DIMS:
+                if 0 <= d < D:
+                    base_scale[d] = 0.0
+                    base_offset[d] = 0.0
+            print(f"[normalizer] explicit-mask {sorted(HIGH_SCALE_MASK_DIMS)} "
+                  f"→ scale=0, offset=0 (Can.q.z, eef_q.w, Can.q.y, Bread.q.z)")
+
+        # PickPlace specific: when fewer than 4 objects are active in the
+        # scene, the inactive object_ids are determined by the right-first
+        # canonical order. Their 14-dim slots in `object` are populated by
+        # `clear_objects` (parked off-table) and drift over time — which
+        # makes the normalized obs differ between train and eval. Force
+        # those slots to (scale=0, offset=0) so they always normalize to 0
+        # regardless of input. Inferred from obs schema: PickPlace `object`
+        # is 56 dims = 4 × 14, and the obs starts with the 'object' key.
+        # Only apply when obs_keys begins with 'object' AND base dims ≥ 56.
+        if (D >= 56 and self.n_active_objects < 4
+                and len(self.obs_keys) > 0 and self.obs_keys[0] == 'object'):
+            # Right-first canonical order: Bread(1), Can(3), Milk(0), Cereal(2)
+            canonical_order = [1, 3, 0, 2]
+            active_ids = set(canonical_order[:self.n_active_objects])
+            inactive_ids = [i for i in range(4) if i not in active_ids]
+            for obj_id in inactive_ids:
+                base_scale[obj_id * 14: obj_id * 14 + 14] = 0.0
+                base_offset[obj_id * 14: obj_id * 14 + 14] = 0.0
+            print(f"[normalizer] n_active_objects={self.n_active_objects} → "
+                  f"zeroing obs slots for inactive object ids {inactive_ids} "
+                  f"(dims {[(i*14, i*14+14) for i in inactive_ids]})")
+
+        # Reward dims: identity (z-scores pass through).
         reward_scale = np.ones(self.conditioning_dims, dtype=np.float32)
         reward_offset = np.zeros(self.conditioning_dims, dtype=np.float32)
 
-        full_scale = np.concatenate([base_scale, reward_scale])
-        full_offset = np.concatenate([base_offset, reward_offset])
+        full_stat = array_to_stats(all_obs)
+        full_scale = np.concatenate([base_scale, reward_scale]).astype(np.float32)
+        full_offset = np.concatenate([base_offset, reward_offset]).astype(np.float32)
 
         normalizer['obs'] = SingleFieldLinearNormalizer.create_manual(
             scale=full_scale,

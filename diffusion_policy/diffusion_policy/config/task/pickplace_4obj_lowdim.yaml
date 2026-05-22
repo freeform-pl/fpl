@@ -1,0 +1,57 @@
+name: pickplace_4obj_lowdim
+
+# 4 objects × 14 sensors = 56 (object) + 3 (eef_pos) + 4 (eef_quat) + 2 (gripper_qpos) = 65
+obs_dim: 65
+# 10 = 3 (pos) + 6 (rot6d) + 1 (gripper)
+action_dim: 10
+keypoint_dim: 3
+
+obs_keys: &obs_keys ['object', 'robot0_eef_pos', 'robot0_eef_quat', 'robot0_gripper_qpos']
+task_name: &task_name pickplace_4obj
+abs_action: &abs_action True
+
+# Filled by the pipeline at runtime (path to scripted demos hdf5).
+dataset_path: &dataset_path data/scripted_pickplace_4obj/demos.hdf5
+
+env_runner:
+  _target_: diffusion_policy.env_runner.pickplace_lowdim_runner.PickPlaceLowdimRunner
+  dataset_path: *dataset_path
+  obs_keys: *obs_keys
+  n_train: 6
+  n_train_vis: 2
+  train_start_idx: 0
+  n_test: 50
+  n_test_vis: 4
+  test_start_seed: 100000
+  max_steps: 1200
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  n_latency_steps: ${n_latency_steps}
+  render_hw: [128, 128]
+  fps: 10
+  crf: 22
+  past_action: ${past_action_visible}
+  abs_action: *abs_action
+  n_envs: 28
+  # Place each of the 4 objects at the center of its own bin1 quadrant with
+  # a small xy jitter — guarantees objects can't bump into each other.
+  quadrant_placement: True
+  quadrant_noise: 0.03   # ±3 cm xy jitter around the quadrant center
+  settle_steps: 40       # sim.step() count to let objects settle under gravity
+  # Subset of objects active for the task. 4 = all, 2 = first two in the
+  # right-first canonical order (Bread + Can). Inactive objects get cleared
+  # out of the scene at reset by robosuite's clear_objects helper.
+  n_active_objects: 4
+
+dataset:
+  _target_: diffusion_policy.dataset.robomimic_replay_lowdim_dataset.RobomimicReplayLowdimDataset
+  dataset_path: *dataset_path
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1+${n_latency_steps}'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  obs_keys: *obs_keys
+  abs_action: *abs_action
+  use_legacy_normalizer: False
+  seed: 42
+  val_ratio: 0.02
+  max_train_episodes: null

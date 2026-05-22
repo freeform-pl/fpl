@@ -394,12 +394,15 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             throughput = success / ((first_success_step + 1) / self.max_steps) if success else 0.0
             prefix_throughput[prefix].append(throughput)
 
-            # --- smoothness ---
+            # --- smoothness --- 0 on failure so the metric only credits
+            # smooth trajectories that actually completed the task.
             smoothness = 1.0
             if len(actions) >= 3:
                 jerk = np.diff(actions, n=3, axis=0)
                 jerk_mag = np.mean(np.linalg.norm(jerk, axis=-1))
                 smoothness = float(np.exp(-10.0 * jerk_mag))
+            if not success:
+                smoothness = 0.0
             prefix_smoothness[prefix].append(smoothness)
 
             # --- per-peg metrics ---

@@ -545,6 +545,10 @@ def main(output_dir, num_episodes, seed, noise_min, noise_max, speed_factor_left
         action_array_ep = np.stack(action_list, axis=0)
         ep_steps = len(action_list)
         ep_smoothness = compute_smoothness(action_array_ep)
+        # Gate by success — failed demos contribute smoothness=0 so the reward
+        # model can't reward "smoothly never finishing".
+        if not success:
+            ep_smoothness = 0.0
         ep_speed = compute_speed_reward(ep_steps)
         ep_peg = -1.0 if policy.target_peg == 'left' else 1.0
         print(f"Episode {ep_num} complete: steps={ep_steps}, peg={policy.target_peg}({ep_peg:+.0f}), "

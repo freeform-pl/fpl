@@ -191,6 +191,10 @@ def collect_rollouts_with_conditioning(
             first_success_step = int(success_steps[0]) if len(success_steps) > 0 else len(rewards)
             speed_reward = compute_speed_reward(success, first_success_step, actual_max_steps)
             smoothness, _ = compute_smoothness(actions)
+            # Failed rollouts contribute smoothness=0 so the reward model
+            # can't credit a "smoothly never finishing" trajectory.
+            if not success:
+                smoothness = 0.0
 
             final_obs = obs_seq[-1]
             peg_reward = classify_peg_from_obs(final_obs)

@@ -6,13 +6,14 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=dsuc_sf_mid
+#SBATCH --job-name=dsuc_sf_lp_3d
 #SBATCH --nodelist=iris7,iris8,iris9,iris10
 #SBATCH --output slurm/%j.out
 
-# Demo-success baseline for slow/fast MEDIUM — no rollouts, 200 scripted demos, mid range, DISCRETE conditioning
-export PIPELINE_DIR="pipeline_output_slow_fast_medium_no_rollouts_mid_range_discrete_demo_success"
-export WANDB_PROJECT="slow_fast_medium_no_rollouts_mid_range_discrete_demo_success"
+# Demo-success baseline for slow/fast MEDIUM — success conditioning, no reward model
+# 3D reward eval: speed_reward, smoothness, peg_reward (no preferences used here)
+export PIPELINE_DIR="pipeline_output_slow_fast_less_preferences_3d_demo_success"
+export WANDB_PROJECT="slow_fast_less_preferences_3d_demo_success"
 export COND_CONFIG="train_demo_success_flow_transformer_lowdim_workspace.yaml"
 export SKIP_REWARD_MODEL=true
 export IS_CONDITIONED_EVAL=false
@@ -29,9 +30,9 @@ export SKIP_ROLLOUTS=false
 # Separate shared data for this variant
 export SHARED_DATA_DIR="shared_data_slow_fast_medium_no_rollouts_mid_range"
 
-# Per-axis eval conditioning targets
-export REWARD_AXES="speed_reward,peg_reward"
-export NUM_REWARD_DIMS=2
+# Per-axis eval conditioning targets (speed, smoothness, peg)
+export REWARD_AXES="speed_reward,smoothness,peg_reward"
+export NUM_REWARD_DIMS=3
 
 export RESUME_FROM_PHASE=3
 bash scripts/run_pipeline_slow_fast.sh
