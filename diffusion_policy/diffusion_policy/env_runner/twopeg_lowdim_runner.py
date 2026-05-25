@@ -120,3 +120,21 @@ class TwoPegLowdimRunner(RobomimicLowdimRunner):
 
         self.env_init_fn_dills = new_init_fn_dills
         self.env = AsyncVectorEnv(self.env_fns)
+
+    def _extra_eval_log(self, all_obs_seqs, all_actions, all_rewards):
+        """Per-axis reward logging for the slow_fast / twopeg task. Computes
+        each axis (success / speed_reward / smoothness / peg_reward /
+        peg_reward_raw) on every rollout's obs sequence and logs the mean per
+        prefix. Lets every twopeg-derived baseline (base policy, AWR,
+        demo_success, demo_only) be compared on the same axes as RHP."""
+        from reward_model.reward_functions import (
+            compute_pickplace_eval_log, get_slow_fast_logging_axes)
+        n_inits = len(self.env_init_fn_dills)
+        prefixes = [self.env_prefixs[i] for i in range(n_inits)]
+        return compute_pickplace_eval_log(
+            obs_seqs=all_obs_seqs,
+            action_seqs=all_actions,
+            prefixes=prefixes,
+            n_active_objects=4,  # unused for slow_fast (no strict_success)
+            axis_names=get_slow_fast_logging_axes(),
+        )

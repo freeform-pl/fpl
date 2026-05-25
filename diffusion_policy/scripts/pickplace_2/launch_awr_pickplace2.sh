@@ -48,7 +48,7 @@ export SHARED_DATA_DIR="shared_data_pickplace_2obj_fixed"
 export REWARD_AXES="order_reward,bread_placed,can_placed,bread_drop,can_drop"
 export NUM_REWARD_DIMS=5
 export REWARD_EPOCHS=40
-export COND_POLICY_EPOCHS=1500
+export COND_POLICY_EPOCHS=750
 # Rollout/eval frequency (every N epochs). Larger = faster training, fewer checkpoints.
 export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_every=100 ++training.checkpoint_every=100"
 

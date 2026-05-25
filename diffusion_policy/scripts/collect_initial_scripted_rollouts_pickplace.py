@@ -139,7 +139,8 @@ class PickPlaceScriptedPolicy:
     def __init__(self, env, order='canonical', n_objects=4,
                  drop_modes=None, drop_heights=None,
                  careful_height=0.04, noise_level=0.0, speed_factor=1.0,
-                 max_grasp_attempts=3, active_order=None, path_jitter=0.05):
+                 max_grasp_attempts=3, active_order=None, path_jitter=0.05,
+                 release_xy_noise=0.0):
         self.env = env
         self.order = order
         self.n_objects = int(n_objects)
@@ -164,6 +165,14 @@ class PickPlaceScriptedPolicy:
         # CLOSE/RELEASE/regrasp moments, never to the final waypoint of a
         # motion. Adds path-level diversity without breaking precise grasping.
         self.path_jitter = float(path_jitter)
+        # Per-object xy offset (m) added to the release position (bin_target).
+        # Spreads where placed objects land within / near their target bin,
+        # which makes the *_placed_raw reward more continuous instead of
+        # clustering near 0 for every successful placement.
+        self.release_xy_noise = float(release_xy_noise)
+        # Per-object random xy offset sampled once per object at reset time
+        # (filled in by reset()).
+        self._release_offsets = []
         self.rotation_transformer = RotationTransformer('euler_angles', 'axis_angle', from_convention='XYZ')
         # Default gripper orientation: pitch=pi (point down), yaw=pi/2.
         # Per-object yaw overrides applied in _plan_phase.
@@ -320,7 +329,14 @@ class PickPlaceScriptedPolicy:
         bin_target[1] += dy_obj
         above_bin = bin_target.copy()
         above_bin[2] = bin_target[2] + 0.25
+        # Per-object random xy offset sampled at reset (release_xy_noise).
+        if self.q_idx < len(self._release_offsets):
+            rx, ry = self._release_offsets[self.q_idx]
+        else:
+            rx, ry = 0.0, 0.0
         release_pos = bin_target.copy()
+        release_pos[0] += rx
+        release_pos[1] += ry
         release_pos[2] = bin_target[2] + dheight
 
         if self.phase == 'APPROACH':
@@ -335,17 +351,25 @@ class PickPlaceScriptedPolicy:
             return
 
         if self.phase == 'DESCEND':
-            # jitter on for the descent waypoints; the final waypoint lands
-            # exactly on grasp_pos so the gripper closes cleanly.
+            # NO jitter on descent — ±5 cm xy waypoints near the target can
+            # bump adjacent objects (cylinders like Can roll), shifting them
+            # before the gripper closes. Path diversity is still added via
+            # APPROACH (long traverse to above_obj) and TRANSIT/RETREAT.
             self._push_bezier(self.last_euler[:3], grasp_pos, num=20,
-                              gripper=-1., vmax=v, jitter=True)
+                              gripper=-1., vmax=v, jitter=False)
             self.phase = 'CLOSE'
             return
 
         if self.phase == 'CLOSE':
-            # Critical grasp moment — no jitter, gripper closes precisely.
-            close_target = np.concatenate([grasp_pos, self.rot_euler, [1.]])
-            self._push_interp(close_target, int(12 * sf), gripper=1., jitter=False)
+            # Two stages so the gripper closes AT the object's current xy,
+            # not while still translating from DESCEND's stale target.
+            #   ALIGN_OPEN: re-aim to fresh obj_pos with gripper OPEN — catches
+            #               any object drift between DESCEND-queue-time and now.
+            #   GRIP:       close gripper in place, no further translation.
+            align_target = np.concatenate([grasp_pos, self.rot_euler, [-1.]])
+            self._push_interp(align_target, int(6 * sf), gripper=-1., jitter=False)
+            grip_target = np.concatenate([grasp_pos, self.rot_euler, [1.]])
+            self._push_interp(grip_target, int(6 * sf), gripper=1., jitter=False)
             self.phase = 'LIFT'
             return
 
@@ -438,6 +462,18 @@ class PickPlaceScriptedPolicy:
             raise ValueError(f"Unknown order: {self.order}")
         self.queue = [(idx, self.drop_modes[k], self.drop_heights[k])
                       for k, idx in enumerate(idxs)]
+        # Sample one xy release-offset per object so each placement lands at
+        # a slightly different point inside (or near) the target bin. Same
+        # offset is reused across grasp retries for the same object so the
+        # release target stays consistent within one placement attempt.
+        if self.release_xy_noise > 0.0:
+            self._release_offsets = [
+                (float(np.random.uniform(-self.release_xy_noise, self.release_xy_noise)),
+                 float(np.random.uniform(-self.release_xy_noise, self.release_xy_noise)))
+                for _ in idxs
+            ]
+        else:
+            self._release_offsets = [(0.0, 0.0) for _ in idxs]
         self.q_idx = 0
         self.phase = 'INIT'
         self.grasp_attempts = 0
@@ -534,8 +570,10 @@ def compute_speed_reward(steps_taken, max_steps=2000):
 @click.option('--noise_max', type=float, default=0.05)
 @click.option('--speed_factor', type=float, default=1.0)
 @click.option('--max_steps', type=int, default=2000)
-@click.option('--save_all_videos/--save_some_videos', default=True,
-              help='Record an MP4 for every episode (default) vs. just the first 10.')
+@click.option('--save_all_videos/--save_some_videos', default=False,
+              help='Record an MP4 for every episode vs. just the first 3 (default). '
+                   '"Some" disables rendering entirely after the first 3, which '
+                   'meaningfully speeds up bulk demo collection.')
 @click.option('--quadrant_noise', type=float, default=0.03,
               help='Per-object xy jitter (m) around the quadrant center in bin1.')
 @click.option('--settle_steps', type=int, default=40,
@@ -548,7 +586,15 @@ def compute_speed_reward(steps_taken, max_steps=2000):
               help='Number of objects active in the scene (1..4). The first N in the right-first canonical order are kept; the rest are cleared from the bin.')
 @click.option('--path_jitter', type=float, default=0.05,
               help='±xy meters of per-step jitter applied to transit waypoints (APPROACH/DESCEND/LIFT/TRANSIT/RETREAT). 0 disables. CLOSE/RELEASE/LOWER/regrasp are never jittered.')
-def main(path_jitter, output_dir, num_episodes, seed, order_mode, n_objects_min, n_objects_max,
+@click.option('--release_xy_noise', type=float, default=0.0,
+              help='±xy meters of random offset applied to the release position '
+                   '(per object, sampled once at reset). Spreads where placed '
+                   'objects land in / near their target bin so the *_placed_raw '
+                   'reward varies continuously instead of clustering at 0. '
+                   'Bin half-width is ~0.10m; values up to ~0.08 keep most '
+                   'objects in-bin while still giving useful spread.')
+def main(path_jitter, release_xy_noise, output_dir, num_episodes, seed,
+         order_mode, n_objects_min, n_objects_max,
          drop_mode, drop_height_min, drop_height_max, careful_height,
          noise_min, noise_max, speed_factor, max_steps, save_all_videos,
          quadrant_noise, settle_steps, quadrant_placement, max_grasp_attempts,
@@ -601,18 +647,25 @@ def main(path_jitter, output_dir, num_episodes, seed, order_mode, n_objects_min,
         n_objs = int(np.random.randint(min(n_objects_min, n_objs_cap), n_objs_cap + 1))
 
         # Per-object drop mode + height (in placement order, length = n_objs).
+        # 'random' samples drop_height uniformly across the FULL range
+        # [careful_height, drop_height_max] so the resulting drop reward is
+        # continuous (no gap between the careful and drop modes). The
+        # 'careful'/'drop' categorical mode label is then derived from the
+        # sampled height (`careful` if height < drop_height_min else `drop`).
         per_obj_dmodes = []
         per_obj_dheights = []
         for _ in range(n_objs):
             if drop_mode == 'random':
-                m = random.choice(['careful', 'drop'])
-            else:
-                m = drop_mode
+                h = float(np.random.uniform(careful_height, drop_height_max))
+                m = 'careful' if h < drop_height_min else 'drop'
+            elif drop_mode == 'careful':
+                h = float(careful_height)
+                m = 'careful'
+            else:  # drop_mode == 'drop'
+                h = float(np.random.uniform(drop_height_min, drop_height_max))
+                m = 'drop'
             per_obj_dmodes.append(m)
-            if m == 'careful':
-                per_obj_dheights.append(float(careful_height))
-            else:
-                per_obj_dheights.append(float(np.random.uniform(drop_height_min, drop_height_max)))
+            per_obj_dheights.append(h)
 
         n_careful = sum(1 for m in per_obj_dmodes if m == 'careful')
         n_dropped = n_objs - n_careful
@@ -624,7 +677,7 @@ def main(path_jitter, output_dir, num_episodes, seed, order_mode, n_objects_min,
         # Reset env + policy
         assert isinstance(env.env, VideoRecordingWrapper)
         env.env.video_recoder.stop()
-        if save_all_videos or ep_num < 10:
+        if save_all_videos or ep_num < 3:
             vid_path = pathlib.Path(output_dir).joinpath(f"vids/ep{ep_num}.mp4")
             vid_path.parent.mkdir(parents=False, exist_ok=True)
             env.env.file_path = str(vid_path)
@@ -649,6 +702,7 @@ def main(path_jitter, output_dir, num_episodes, seed, order_mode, n_objects_min,
             max_grasp_attempts=max_grasp_attempts,
             active_order=active_canonical,
             path_jitter=path_jitter,
+            release_xy_noise=release_xy_noise,
         )
         policy.reset()
 
@@ -719,7 +773,8 @@ def main(path_jitter, output_dir, num_episodes, seed, order_mode, n_objects_min,
         # all-careful = +1, all-drop = -1, mixed = (n_careful - n_dropped) / n_objs.
         drop_reward = float(n_careful - n_dropped) / max(n_objs, 1)
 
-        print(f"  steps={ep_steps}, placed={n_placed}/{n_objs} (target), "
+        outcome = "SUCCESS" if success else "FAIL"
+        print(f"  [{outcome}] steps={ep_steps}, placed={n_placed}/{n_objs} (target), "
               f"speed={ep_speed:.3f}, smoothness={ep_smoothness:.3f}, "
               f"order={order}({order_reward:+.0f}), "
               f"careful={n_careful}/{n_objs} drop_r={drop_reward:+.2f}")

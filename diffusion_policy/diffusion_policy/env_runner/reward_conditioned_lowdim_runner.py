@@ -481,51 +481,22 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
                 if video_path is not None:
                     log_data[prefix + f'sim_video_{seed}'] = wandb.Video(video_path)
 
-            # Per-axis reward values for each rollout — logged as prefix + axis
-            # name (e.g. test/order_reward, test/bread_placed). Same axis
-            # functions as the reward model uses, so the policy's eval values
-            # are directly comparable to what the reward model is scoring.
-            # Also computes a strict success criterion: order_reward = +1 AND
-            # every per-object _drop axis > 0 (i.e. careful drop on every
-            # active object). Generalises to pickplace_2 / pickplace_4 via the
-            # configured reward axes.
-            prefix_strict_success = collections.defaultdict(list)
-            strict_drop_axes = [ax for ax in self.reward_axis_names
-                                if ax.endswith('_drop') and ax != 'drop_reward']
-            strict_axes_available = ('order_reward' in self.reward_axis_names
-                                     and len(strict_drop_axes) > 0)
-            if self.reward_axis_names:
-                axis_accum = {ax: collections.defaultdict(list) for ax in self.reward_axis_names}
-                for i in range(n_inits):
-                    prefix = self.env_prefixs[i]
-                    obs_seq = all_obs_seqs[i]
-                    if obs_seq is None or len(obs_seq) == 0:
-                        continue
-                    act_seq = all_actions[i]
-                    rollout_vals = {}
-                    for ax in self.reward_axis_names:
-                        fn = REWARD_AXIS_FUNCTIONS.get(ax)
-                        if fn is None:
-                            continue
-                        try:
-                            v = float(fn(obs_seq, actions=act_seq))
-                        except Exception:
-                            v = 0.0
-                        axis_accum[ax][prefix].append(v)
-                        rollout_vals[ax] = v
-                    if strict_axes_available:
-                        order_ok = rollout_vals.get('order_reward', 0.0) >= 1.0 - 1e-6
-                        drops_ok = all(rollout_vals.get(ax, 0.0) > 0
-                                       for ax in strict_drop_axes)
-                        prefix_strict_success[prefix].append(
-                            float(order_ok and drops_ok))
-                for ax, by_prefix in axis_accum.items():
-                    for prefix, vals in by_prefix.items():
-                        if vals:
-                            log_data[prefix + ax] = float(np.mean(vals))
-            for prefix, vals in prefix_strict_success.items():
-                if vals:
-                    log_data[prefix + 'mean_strict_success'] = float(np.mean(vals))
+            # Canonical PickPlace per-axis logging — shared helper so every
+            # baseline (base policy via PickPlaceLowdimRunner, AWR,
+            # demo_success, demo_only, RHP) is compared on the same axes:
+            # order_reward + per-active-object placed/drop + mean_strict_success.
+            from reward_model.reward_functions import (
+                compute_pickplace_eval_log, get_pickplace_eval_axes)
+            prefixes = [self.env_prefixs[i] for i in range(n_inits)]
+            axis_log = compute_pickplace_eval_log(
+                obs_seqs=all_obs_seqs,
+                action_seqs=all_actions,
+                prefixes=prefixes,
+                n_active_objects=self.n_active_objects,
+            )
+            log_data.update(axis_log)
+            # Cache the axis names so the mean_score loop below can sum them.
+            _pickplace_axis_names = get_pickplace_eval_axes(self.n_active_objects)
 
             for prefix in prefix_max_placed.keys():
                 mean_n = float(np.mean(prefix_max_placed[prefix]))
@@ -541,11 +512,11 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
                 log_data[prefix + 'mean_full_success'] = mean_full
                 log_data[prefix + 'mean_speed_reward'] = mean_speed
                 log_data[prefix + 'mean_smoothness'] = mean_smooth
-                # Score = avg of (placed-fraction, speed, smoothness), each in [0, 1].
-                # Divides mean_n by n_active_objects so the score is comparable
-                # across variants (pickplace_2: /2, pickplace_4: /4).
-                placed_frac = mean_n / max(self.n_active_objects, 1)
-                log_data[prefix + 'mean_score'] = (placed_frac + mean_speed + mean_smooth) / 3
+                # mean_score = sum of per-axis reward values (order + each
+                # placed + each drop). For pickplace_2 the 5 axes give a
+                # range of roughly [-5, +5]; strict-success demos sit near +5.
+                log_data[prefix + 'mean_score'] = float(sum(
+                    log_data.get(prefix + ax, 0.0) for ax in _pickplace_axis_names))
                 if prefix_first_placement_step[prefix]:
                     log_data[prefix + 'mean_first_placement_step'] = float(np.mean(prefix_first_placement_step[prefix]))
             return log_data
@@ -668,6 +639,23 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
                 log_data[prefix + 'mean_first_success_step_left'] = np.mean(prefix_first_success_step_left[prefix])
             if prefix_first_success_step_right[prefix]:
                 log_data[prefix + 'mean_first_success_step_right'] = np.mean(prefix_first_success_step_right[prefix])
+
+        # Per-axis logging for the slow_fast (twopeg) task — same shape as the
+        # PickPlace branch: compute each reward axis on every rollout's obs
+        # sequence and log the mean. Lets every baseline trained with this
+        # runner (RHP / single_pref / AWR / demo_success) be compared on the
+        # same axes side-by-side in wandb (incl. continuous peg_reward_raw).
+        from reward_model.reward_functions import (
+            compute_pickplace_eval_log, get_slow_fast_logging_axes)
+        prefixes = [self.env_prefixs[i] for i in range(n_inits)]
+        axis_log = compute_pickplace_eval_log(
+            obs_seqs=all_obs_seqs,
+            action_seqs=all_actions,
+            prefixes=prefixes,
+            n_active_objects=self.n_active_objects,
+            axis_names=get_slow_fast_logging_axes(),
+        )
+        log_data.update(axis_log)
 
         return log_data
 

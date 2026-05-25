@@ -14,7 +14,7 @@
 # Active objects: Bread + Can (first two in the right-first canonical order).
 # Composite scalar reward = average of order + per-object placed (bread/can) +
 # per-object drop (bread/can).
-export PIPELINE_DIR="pipeline_output_pickplace_2obj_fixed_single_pref_raw"
+export PIPELINE_DIR="pipeline_output_pickplace_2obj_fixed_single_pref"
 export WANDB_PROJECT="pickplace_2obj_fixed_single_pref"
 export BASE_POLICY_DIR="base_policy_pickplace_2obj_fixed"
 export IS_CONDITIONED_EVAL=true
@@ -45,11 +45,13 @@ export SHARED_DATA_DIR="shared_data_pickplace_2obj_fixed_v2"
 
 # Single composite scalar reward: average of order, per-object placed
 # (bread/can), and per-object drop (bread/can).
-# export REWARD_AXES="composite(order_reward+bread_placed+can_placed+bread_drop+can_drop)"
-export REWARD_AXES="composite(order_reward+bread_placed_raw+can_placed_raw+bread_drop_raw+can_drop_raw)"
+export REWARD_AXES="composite(order_reward+bread_placed+can_placed+bread_drop+can_drop)"
 export NUM_REWARD_DIMS=1
 export REWARD_EPOCHS=400
 export COND_POLICY_EPOCHS=750
+# Training seed for the single-pref policy (Phase 4). Applied to both
+# `training.seed` and `task.dataset.seed`. Leave unset to use YAML default (42).
+export TRAINING_SEED=62
 # Conditioning-noise augmentation. Adds uniform [-AUGMENT_SCORE, +AUGMENT_SCORE]
 # noise to the appended reward dims at sample time and re-rounds to the same
 # 0.1 buckets — so each (state, action) pair sometimes gets re-labeled with an
@@ -72,5 +74,5 @@ export CONDITIONING_TARGETS="0.8;0.9;0.7;0.6;0.5"
 
 # Phase 3 trains the composite-scalar reward model for THIS pipeline dir.
 # Cannot reuse RHP's scores.json (different dimensionality).
-export RESUME_FROM_PHASE=1
+export RESUME_FROM_PHASE=4
 bash scripts/run_pipeline_pickplace.sh

@@ -13,6 +13,11 @@ discrete_conditioning: False
 # conditioning dims at sample time. Acts as a regulariser so the policy
 # doesn't memorise the 0.1 bucket centres. 0.0 disables.
 augment_score: 0.0
+# When True, conditioning scores are quantised to 0.1 buckets in [-1, 1]
+# both at dataset construction and after augment_score noise. False = pass
+# raw z-scores through (still clipped to [-1, 1] only by the reward model's
+# own normalization). Forced True when discrete_conditioning=True.
+round_scores: True
 n_cond_bins: 21
 conditioning_dims: ${eval:'${num_reward_dims} * ${n_cond_bins} if ${discrete_conditioning} else ${num_reward_dims}'}
 obs_dim: ${eval:'${task.obs_dim} + ${conditioning_dims}'}
@@ -119,6 +124,7 @@ task:
     discrete_conditioning: ${discrete_conditioning}
     n_cond_bins: ${n_cond_bins}
     augment_score: ${augment_score}
+    round_scores: ${round_scores}
     seed: 42
     val_ratio: 0.02
     max_train_episodes: null

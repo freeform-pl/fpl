@@ -51,9 +51,23 @@ export REWARD_AXES="order_reward,bread_placed,can_placed,bread_drop,can_drop"
 export NUM_REWARD_DIMS=5
 export BASE_POLICY_EPOCHS=750
 export COND_POLICY_EPOCHS=750
+# Match RHP / single_pref hyperparameters (workspace YAML defaults for
+# demo_success and the base-policy workspace are batch=256 / lr=1e-4; here
+# we bump to batch=1024 / lr=2e-4 to keep the comparison apples-to-apples).
+# Same override is applied to both Phase 1 (base policy) and Phase 4
+# (demo_success policy) since demo_success trains both.
+export BATCH_SIZE=1024
+export LEARNING_RATE=2e-4
+export BASE_BATCH_SIZE=1024
+export BASE_LEARNING_RATE=2e-4
+# Training seeds. demo_success trains both Phase 1 (base policy) and Phase 4
+# (demo_success policy), so both seeds matter. Both default to 42 in the
+# workspace YAMLs; override here to run additional independent seeds.
+export TRAINING_SEED=62
+export BASE_TRAINING_SEED=42
 # Rollout/eval frequency (every N epochs). Larger = faster training, fewer checkpoints.
 export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_every=100 ++training.checkpoint_every=100"
 
 # Skip reward-model phase; jump straight to policy training on the filtered demos.
-export RESUME_FROM_PHASE=1
+export RESUME_FROM_PHASE=4
 bash scripts/run_pipeline_pickplace.sh

@@ -45,6 +45,10 @@ export SHARED_DATA_DIR="shared_data_pickplace_2obj_fixed"
 
 export BASE_POLICY_EPOCHS=750
 export COND_POLICY_EPOCHS=750
+# Training seed for the base policy (Phase 1 — the only training that
+# happens here since SKIP_POLICY_TRAINING=true skips Phase 4). Applied to
+# both `training.seed` and `task.dataset.seed`. Leave unset for YAML default.
+export BASE_TRAINING_SEED=62
 # Phase 1 (base policy) eval/checkpoint frequency. With SKIP_POLICY_TRAINING=true
 # the base policy IS the policy we evaluate, so rolling out more often gives a
 # denser learning curve. Affects only Phase 1.

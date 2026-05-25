@@ -6,19 +6,18 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=pp2_demo_success
+#SBATCH --job-name=pp2_awr
 #SBATCH --nodelist=iris7,iris8,iris10
 #SBATCH --output slurm/%j.out
 
-# Demo-success (success-only) baseline for the PickPlace 2-object benchmark.
+# AWR baseline for the PickPlace 2-object benchmark.
 # Active objects: Bread + Can (first two in the right-first canonical order).
-# Trains a plain flow transformer on the subset of demos that fully placed
-# every active object. No reward model, no conditioning at eval.
-export PIPELINE_DIR="pipeline_output_pickplace_2obj_fixed_demo_success"
-export WANDB_PROJECT="pickplace_2obj_fixed_demo_success"
+# Uses the same 5-D reward axes as RHP, but the AWR dataset averages them into
+# a scalar advantage weight (exp(beta * mean_z)). No reward conditioning at eval.
+export PIPELINE_DIR="pipeline_output_pickplace_2obj_fixed_awr"
+export WANDB_PROJECT="pickplace_2obj_fixed_awr"
 export BASE_POLICY_DIR="base_policy_pickplace_2obj_fixed"
-export COND_CONFIG="train_demo_success_flow_transformer_lowdim_workspace.yaml"
-export SKIP_REWARD_MODEL=true
+export COND_CONFIG="train_awr_flow_transformer_lowdim_workspace.yaml"
 export IS_CONDITIONED_EVAL=false
 export DISCRETE_CONDITIONING=true
 
@@ -39,21 +38,26 @@ export NOISE_MIN=0.0
 export NOISE_MAX=0.05
 
 # 1000 demos, no rollouts
-export N_SCRIPTED=500
-export SKIP_ROLLOUTS=false
+export N_SCRIPTED=300
+export SKIP_ROLLOUTS=true
 
 # export SHARED_DATA_DIR="shared_data_pickplace_2obj"
-export SHARED_DATA_DIR="shared_data_pickplace_2obj_fixed_v2"
+export SHARED_DATA_DIR="shared_data_pickplace_2obj_fixed"
 
-# Reward axes are unused (SKIP_REWARD_MODEL=true) but kept for consistency
-# with the env_runner's per-axis logging at eval time.
+# Same 5-D reward axes as RHP — AWR averages them into a scalar weight.
 export REWARD_AXES="order_reward,bread_placed,can_placed,bread_drop,can_drop"
 export NUM_REWARD_DIMS=5
-export BASE_POLICY_EPOCHS=750
+export REWARD_EPOCHS=400
 export COND_POLICY_EPOCHS=750
+# Training seed for the AWR policy (Phase 4). Applied to both
+# `training.seed` and `task.dataset.seed`. Leave unset to use YAML default (42).
+export TRAINING_SEED=42
 # Rollout/eval frequency (every N epochs). Larger = faster training, fewer checkpoints.
 export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_every=100 ++training.checkpoint_every=100"
 
-# Skip reward-model phase; jump straight to policy training on the filtered demos.
-export RESUME_FROM_PHASE=1
+export N_PAIRS=70
+
+# Phase 3 trains the reward model (scores.json) for THIS pipeline dir; phase 4
+# trains the AWR policy off those scores. No iterative refinement for AWR.
+export RESUME_FROM_PHASE=3
 bash scripts/run_pipeline_pickplace.sh

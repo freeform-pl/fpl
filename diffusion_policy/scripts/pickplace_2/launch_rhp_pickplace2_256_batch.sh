@@ -6,15 +6,19 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=pp2_rhp
+#SBATCH --job-name=pp2_rhp_bs256
 #SBATCH --nodelist=iris7,iris8,iris10
 #SBATCH --output slurm/%j.out
 
 # RHP baseline for the PickPlace 2-object benchmark.
 # Active objects: Bread + Can (first two in the right-first canonical order).
 # 5D reward: order + bread_placed + can_placed + bread_drop + can_drop.
-export PIPELINE_DIR="pipeline_output_pickplace_2obj_fixed_rhp_raw"
+export PIPELINE_DIR="pipeline_output_pickplace_2obj_fixed_rhp_bs256"
 export WANDB_PROJECT="pickplace_2obj_fixed_rhp"
+# Batch-size ablation: batch=256 (vs RHP default 1024).
+# LR linearly scaled: 2e-4 * (256/1024) = 5e-5 to keep gradient noise comparable.
+export BATCH_SIZE=256
+export LEARNING_RATE=1e-4
 export BASE_POLICY_DIR="base_policy_pickplace_2obj_fixed"
 export IS_CONDITIONED_EVAL=true
 export DISCRETE_CONDITIONING=false
@@ -44,8 +48,7 @@ export SHARED_DATA_DIR="shared_data_pickplace_2obj_fixed_v2"
 
 # 5D axes: order, per-object placed (bread/can), per-object drop (bread/can).
 # ORDER MUST MATCH the values in CONDITIONING_TARGETS / EVAL_Z_* below.
-# export REWARD_AXES="order_reward,bread_placed,can_placed,bread_drop,can_drop"
-export REWARD_AXES="order_reward,bread_placed_raw,can_placed_raw,bread_drop_raw,can_drop_raw"
+export REWARD_AXES="order_reward,bread_placed,can_placed,bread_drop,can_drop"
 export NUM_REWARD_DIMS=5
 export REWARD_EPOCHS=400
 export COND_POLICY_EPOCHS=750
@@ -63,7 +66,7 @@ export ROUND_SCORES=False
 export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_every=100 ++training.checkpoint_every=100 ++augment_score=${AUGMENT_SCORE} ++round_scores=${ROUND_SCORES}"
 
 # Eval z-score conditioning. Positive = best on every axis, negative = worst.
-export EVAL_Z_POSITIVE="[0.8,0.5,0.8,0.5,0.8]"
+export EVAL_Z_POSITIVE="[0.8,0.8,0.8,0.8,0.8]"
 export EVAL_Z_NEGATIVE="[-0.8,0.7,0.8,-0.8,-0.8]"
 
 export N_PAIRS=70
@@ -75,5 +78,5 @@ export N_ITERATIONS=3
 export N_ITER_ROLLOUTS=200
 export CONDITIONING_TARGETS="0.8,-0.8,-0.8,0.8,0.8;0.8,0.8,-0.8,0.8,0.8;0.8,0.8,0.8,0.8,0.8"
 
-export RESUME_FROM_PHASE=3
+export RESUME_FROM_PHASE=4
 bash scripts/run_pipeline_pickplace.sh

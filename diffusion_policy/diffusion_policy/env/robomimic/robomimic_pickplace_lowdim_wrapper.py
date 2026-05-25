@@ -125,9 +125,12 @@ class RobomimicPickPlaceLowdimWrapper(gym.Env):
         size_x, size_y, _ = rs.bin_size
         # Mirror the bin2 quadrant convention used by target_bin_placements:
         # object id 0 = (x-low, y-low), 1 = (x-high, y-low), 2 = (x-low, y-high), 3 = (x-high, y-high).
+        # Bread (id 1) is pulled closer to bin center along x so the arm doesn't
+        # have to reach to the far +x edge — that long reach made the gripper
+        # bump Can (id 3) on the way back during canonical-order demos.
         offsets = [
             (-size_x / 4.0, -size_y / 4.0),
-            ( size_x / 4.0, -size_y / 4.0),
+            ( size_x / 8.0, -size_y / 4.0),
             (-size_x / 4.0,  size_y / 4.0),
             ( size_x / 4.0,  size_y / 4.0),
         ]

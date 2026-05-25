@@ -51,9 +51,19 @@ N_SCRIPTED=${N_SCRIPTED:-50}
 N_ROLLOUTS=${N_ROLLOUTS:-200}
 N_EVAL_ROLLOUTS=${N_EVAL_ROLLOUTS:-50}
 PIPELINE_DIR=${PIPELINE_DIR:-"pipeline_output_slow_fastv2"}
-BASE_POLICY_EPOCHS=5000
+BASE_POLICY_EPOCHS=${BASE_POLICY_EPOCHS:-5000}
 REWARD_EPOCHS=${REWARD_EPOCHS:-50}
-COND_POLICY_EPOCHS=500
+COND_POLICY_EPOCHS=${COND_POLICY_EPOCHS:-500}
+# Diffusion-policy action chunking — matches pickplace defaults (h=16/o=2/a=8).
+# n_action_steps=8 cuts inference frequency 8× at eval; horizon=16 gives the
+# model more lookahead structure.
+N_OBS_STEPS=${N_OBS_STEPS:-2}
+N_ACTION_STEPS=${N_ACTION_STEPS:-8}
+HORIZON=${HORIZON:-16}
+# Eval rollout cap (`task.env_runner.max_steps`). 500 leaves room for the
+# slowest scripted demos (which reach ~475 steps under speed_factor=4) while
+# still discouraging endlessly-slow policies.
+MAX_STEPS=${MAX_STEPS:-500}
 WANDB_PROJECT=${WANDB_PROJECT:-"slow_fast_pipeline"}
 NUM_REWARD_DIMS=${NUM_REWARD_DIMS:-4}       # speed, smoothness, peg
 REWARD_AXES=${REWARD_AXES:-"success,speed_reward,smoothness,peg_reward"}
@@ -66,6 +76,17 @@ SKIP_ROLLOUTS=${SKIP_ROLLOUTS:-false}
 DISCRETE_CONDITIONING=${DISCRETE_CONDITIONING:-false}
 TARGET_PEG=${TARGET_PEG:-random}
 EXTRA_POLICY_OVERRIDES=${EXTRA_POLICY_OVERRIDES:-}
+EXTRA_BASE_POLICY_OVERRIDES=${EXTRA_BASE_POLICY_OVERRIDES:-}
+# Phase 4 (conditioned policy) hyperparameter overrides. Empty = use YAML default.
+BATCH_SIZE=${BATCH_SIZE:-}
+LEARNING_RATE=${LEARNING_RATE:-}
+# Phase 1 (base policy) hyperparameter overrides — independent knobs.
+BASE_BATCH_SIZE=${BASE_BATCH_SIZE:-}
+BASE_LEARNING_RATE=${BASE_LEARNING_RATE:-}
+# Training seed overrides; same value goes to `training.seed` (model init,
+# optimizer, dataloader) AND `task.dataset.seed` (train/val split + pair sampling).
+TRAINING_SEED=${TRAINING_SEED:-}
+BASE_TRAINING_SEED=${BASE_TRAINING_SEED:-}
 N_ITERATIONS=${N_ITERATIONS:-0}              # number of iterative refinement rounds after initial training
 N_ITER_ROLLOUTS=${N_ITER_ROLLOUTS:-200}      # total rollouts per iteration (split evenly across targets)
 CONDITIONING_TARGETS=${CONDITIONING_TARGETS:-}  # semicolon-separated targets, e.g. "0.9;0.0;-0.9"
@@ -140,14 +161,34 @@ if [ "${SKIP_ROLLOUTS}" = "true" ]; then
     echo "=== Phase 1: SKIPPED (no rollouts mode — using demos only) ==="
 elif [ ${RESUME_FROM_PHASE} -le 1 ]; then
     echo "=== Phase 1: Training base policy on scripted demos ==="
-    python train.py \
+    BASE_OVERRIDES=""
+    if [ -n "${BASE_BATCH_SIZE}" ]; then
+        BASE_OVERRIDES="${BASE_OVERRIDES} dataloader.batch_size=${BASE_BATCH_SIZE} val_dataloader.batch_size=${BASE_BATCH_SIZE}"
+    fi
+    if [ -n "${BASE_LEARNING_RATE}" ]; then
+        BASE_OVERRIDES="${BASE_OVERRIDES} optimizer.learning_rate=${BASE_LEARNING_RATE}"
+    fi
+    if [ -n "${BASE_TRAINING_SEED}" ]; then
+        BASE_OVERRIDES="${BASE_OVERRIDES} training.seed=${BASE_TRAINING_SEED} task.dataset.seed=${BASE_TRAINING_SEED}"
+    fi
+    if [ -n "${EXTRA_BASE_POLICY_OVERRIDES}" ]; then
+        BASE_OVERRIDES="${BASE_OVERRIDES} ${EXTRA_BASE_POLICY_OVERRIDES}"
+    fi
+    eval python train.py \
         --config-name=train_flow_transformer_lowdim_workspace.yaml \
         task=square_twopeg_lowdim \
         task.dataset.dataset_path="${SCRIPTED_HDF5}" \
         task.env_runner.dataset_path="${SCRIPTED_HDF5}" \
         training.num_epochs=${BASE_POLICY_EPOCHS} \
+        training.resume=False \
+        logging.resume=False \
+        n_obs_steps=${N_OBS_STEPS} \
+        n_action_steps=${N_ACTION_STEPS} \
+        horizon=${HORIZON} \
+        ++task.env_runner.max_steps=${MAX_STEPS} \
         logging.project="${WANDB_PROJECT}" \
-        hydra.run.dir="${BASE_POLICY_DIR}"
+        hydra.run.dir="${BASE_POLICY_DIR}" \
+        ${BASE_OVERRIDES}
 else
     echo "=== Phase 1: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
 fi
@@ -223,6 +264,15 @@ elif [ ${RESUME_FROM_PHASE} -le 4 ]; then
     if [ "${DISCRETE_CONDITIONING}" = "true" ]; then
         EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++discrete_conditioning=True"
     fi
+    if [ -n "${BATCH_SIZE}" ]; then
+        EXTRA_OVERRIDES="${EXTRA_OVERRIDES} dataloader.batch_size=${BATCH_SIZE} val_dataloader.batch_size=${BATCH_SIZE}"
+    fi
+    if [ -n "${LEARNING_RATE}" ]; then
+        EXTRA_OVERRIDES="${EXTRA_OVERRIDES} optimizer.learning_rate=${LEARNING_RATE}"
+    fi
+    if [ -n "${TRAINING_SEED}" ]; then
+        EXTRA_OVERRIDES="${EXTRA_OVERRIDES} training.seed=${TRAINING_SEED} task.dataset.seed=${TRAINING_SEED}"
+    fi
     if [ -n "${EXTRA_POLICY_OVERRIDES}" ]; then
         EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ${EXTRA_POLICY_OVERRIDES}"
     fi
@@ -232,6 +282,12 @@ elif [ ${RESUME_FROM_PHASE} -le 4 ]; then
         rollout_data_path="${ROLLOUT_PATH}" \
         demo_hdf5_path="${SCRIPTED_HDF5}" \
         training.num_epochs=${COND_POLICY_EPOCHS} \
+        training.resume=False \
+        logging.resume=False \
+        n_obs_steps=${N_OBS_STEPS} \
+        n_action_steps=${N_ACTION_STEPS} \
+        horizon=${HORIZON} \
+        ++task.env_runner.max_steps=${MAX_STEPS} \
         logging.project="${WANDB_PROJECT}" \
         hydra.run.dir="${PIPELINE_DIR}/policy_output" \
         task.env_runner.dataset_path="${SCRIPTED_HDF5}" \
@@ -355,6 +411,15 @@ if [ ${N_ITERATIONS} -gt 0 ]; then
         if [ "${DISCRETE_CONDITIONING}" = "true" ]; then
             EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++discrete_conditioning=True"
         fi
+        if [ -n "${BATCH_SIZE}" ]; then
+            EXTRA_OVERRIDES="${EXTRA_OVERRIDES} dataloader.batch_size=${BATCH_SIZE} val_dataloader.batch_size=${BATCH_SIZE}"
+        fi
+        if [ -n "${LEARNING_RATE}" ]; then
+            EXTRA_OVERRIDES="${EXTRA_OVERRIDES} optimizer.learning_rate=${LEARNING_RATE}"
+        fi
+        if [ -n "${TRAINING_SEED}" ]; then
+            EXTRA_OVERRIDES="${EXTRA_OVERRIDES} training.seed=${TRAINING_SEED} task.dataset.seed=${TRAINING_SEED}"
+        fi
         if [ -n "${EXTRA_POLICY_OVERRIDES}" ]; then
             EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ${EXTRA_POLICY_OVERRIDES}"
         fi
@@ -364,6 +429,12 @@ if [ ${N_ITERATIONS} -gt 0 ]; then
             "rollout_data_path=\'${ALL_ROLLOUT_FILES}\'" \
             demo_hdf5_path="${SCRIPTED_HDF5}" \
             training.num_epochs=${COND_POLICY_EPOCHS} \
+            training.resume=False \
+            logging.resume=False \
+            n_obs_steps=${N_OBS_STEPS} \
+            n_action_steps=${N_ACTION_STEPS} \
+            horizon=${HORIZON} \
+            ++task.env_runner.max_steps=${MAX_STEPS} \
             logging.project="${WANDB_PROJECT}" \
             hydra.run.dir="${ITER_POLICY_DIR}" \
             task.env_runner.dataset_path="${SCRIPTED_HDF5}" \

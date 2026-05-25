@@ -255,6 +255,10 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
         all_rewards = [None] * n_inits
         all_actions = [None] * n_inits
         all_final_obs = [None] * n_inits
+        # Per-rollout obs sequence (one obs per multistep boundary) — used
+        # by subclasses for post-eval per-axis reward logging. Memory cost is
+        # small (T_max * obs_dim per rollout), so we always accumulate.
+        all_obs_seqs = [None] * n_inits
 
         for chunk_idx in range(n_chunks):
             start = chunk_idx * n_envs
@@ -280,6 +284,7 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
 
             # track per-env actions for smoothness computation
             chunk_actions = [[] for _ in range(n_envs)]
+            chunk_obs_seq = [[obs[i, -1].copy()] for i in range(n_envs)]
             chunk_done = [False] * n_envs
 
             env_name = self.env_meta['env_name']
@@ -330,6 +335,9 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                     env_action = self.undo_transform_action(action)
 
                 obs, reward, done, info = env.step(env_action)
+                # Record one obs per multistep boundary for post-eval per-axis logging.
+                for i in range(this_n_active_envs):
+                    chunk_obs_seq[i].append(obs[i, -1].copy())
                 done = np.all(done)
                 past_action = action
 
@@ -343,6 +351,7 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             for i in range(this_n_active_envs):
                 all_actions[start + i] = np.array(chunk_actions[i])
                 all_final_obs[start + i] = obs[i, -1, :].copy()
+                all_obs_seqs[start + i] = np.stack(chunk_obs_seq[i], axis=0)
 
         # log
         max_rewards = collections.defaultdict(list)
@@ -471,7 +480,18 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             if prefix_first_success_step_right[prefix]:
                 log_data[prefix+'mean_first_success_step_right'] = np.mean(prefix_first_success_step_right[prefix])
 
+        # Subclass hook: per-axis post-eval logging. Default returns nothing.
+        extra = self._extra_eval_log(all_obs_seqs, all_actions, all_rewards)
+        if extra:
+            log_data.update(extra)
         return log_data
+
+    def _extra_eval_log(self, all_obs_seqs, all_actions, all_rewards):
+        """Hook for subclasses to add per-axis reward logging on top of the
+        default peg-style metrics. Override to return {prefix + key: mean_value}.
+        Default: no extra logging.
+        """
+        return {}
 
     def undo_transform_action(self, action):
         raw_shape = action.shape

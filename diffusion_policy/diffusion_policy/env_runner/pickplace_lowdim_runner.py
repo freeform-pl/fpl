@@ -160,6 +160,9 @@ class PickPlaceLowdimRunner(RobomimicLowdimRunner):
         all_video_paths = [None] * n_inits
         all_rewards = [None] * n_inits
         all_actions = [None] * n_inits
+        # Per-rollout obs sequence (one obs per multistep boundary) — used by
+        # the canonical PickPlace per-axis eval logging at the end of run().
+        all_obs_seqs = [None] * n_inits
 
         for chunk_idx in range(n_chunks):
             start = chunk_idx * n_envs
@@ -180,6 +183,7 @@ class PickPlaceLowdimRunner(RobomimicLowdimRunner):
             policy.reset()
 
             chunk_actions = [[] for _ in range(n_envs)]
+            chunk_obs_seq = [[obs[i, -1].copy()] for i in range(n_envs)]
             chunk_done = [False] * n_envs
 
             env_name = self.env_meta['env_name']
@@ -217,6 +221,9 @@ class PickPlaceLowdimRunner(RobomimicLowdimRunner):
                     env_action = self.undo_transform_action(action)
 
                 obs, reward, done, info = env.step(env_action)
+                # Record one obs per multistep boundary for per-axis logging.
+                for i in range(this_n_active_envs):
+                    chunk_obs_seq[i].append(obs[i, -1].copy())
                 done = np.all(done)
                 past_action = action
 
@@ -228,6 +235,7 @@ class PickPlaceLowdimRunner(RobomimicLowdimRunner):
             all_rewards[this_global_slice] = env.call('get_attr', 'reward')[this_local_slice]
             for i in range(this_n_active_envs):
                 all_actions[start + i] = np.array(chunk_actions[i])
+                all_obs_seqs[start + i] = np.stack(chunk_obs_seq[i], axis=0)
 
         log_data = dict()
         prefix_n_placed = collections.defaultdict(list)
@@ -288,9 +296,31 @@ class PickPlaceLowdimRunner(RobomimicLowdimRunner):
             log_data[prefix + 'mean_full_success'] = mean_full
             log_data[prefix + 'mean_speed_reward'] = mean_speed
             log_data[prefix + 'mean_smoothness'] = mean_smooth
-            placed_frac = mean_n / max(self.n_active_objects, 1)
-            log_data[prefix + 'mean_score'] = (placed_frac + mean_speed + mean_smooth) / 3
             if prefix_first_placement_step[prefix]:
                 log_data[prefix + 'mean_first_placement_step'] = np.mean(prefix_first_placement_step[prefix])
+
+        # Canonical per-axis logging for all PickPlace evals — same axes that
+        # the reward-conditioned runner logs, derived from n_active_objects:
+        # order_reward + per-active-object placed + per-active-object drop +
+        # mean_strict_success. Lets every baseline (base policy, AWR,
+        # demo_success, demo_only) be compared on the same axes as RHP.
+        from reward_model.reward_functions import (
+            compute_pickplace_eval_log, get_pickplace_eval_axes)
+        prefixes = [self.env_prefixs[i] for i in range(n_inits)]
+        axis_log = compute_pickplace_eval_log(
+            obs_seqs=all_obs_seqs,
+            action_seqs=all_actions,
+            prefixes=prefixes,
+            n_active_objects=self.n_active_objects,
+        )
+        log_data.update(axis_log)
+
+        # mean_score = sum of per-axis reward values (order + each placed +
+        # each drop). For pickplace_2 with 5 axes, range is roughly [-5, +5];
+        # strict-success demos sit near the +5 corner.
+        axis_names = get_pickplace_eval_axes(self.n_active_objects)
+        for prefix in set(prefixes):
+            log_data[prefix + 'mean_score'] = float(sum(
+                log_data.get(prefix + ax, 0.0) for ax in axis_names))
 
         return log_data

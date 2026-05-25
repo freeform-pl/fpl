@@ -73,6 +73,21 @@ USE_BEST_CKPT=${USE_BEST_CKPT:-true}
 SKIP_ROLLOUTS=${SKIP_ROLLOUTS:-true}     # PickPlace base policy is hard; default to demos-only.
 DISCRETE_CONDITIONING=${DISCRETE_CONDITIONING:-false}
 EXTRA_POLICY_OVERRIDES=${EXTRA_POLICY_OVERRIDES:-}
+EXTRA_BASE_POLICY_OVERRIDES=${EXTRA_BASE_POLICY_OVERRIDES:-}
+# Phase 4 (conditioned policy) hyperparameter overrides. Leave unset to use
+# the workspace YAML defaults (RHP: batch=1024, lr=2e-4).
+BATCH_SIZE=${BATCH_SIZE:-}
+LEARNING_RATE=${LEARNING_RATE:-}
+# Phase 1 (base policy) hyperparameter overrides. Independent knobs since
+# the base policy can be ablated separately from the conditioned policy.
+BASE_BATCH_SIZE=${BASE_BATCH_SIZE:-}
+BASE_LEARNING_RATE=${BASE_LEARNING_RATE:-}
+# Training seed overrides (Phase 4 conditioned policy and Phase 1 base policy).
+# Same value is passed to both `training.seed` (model init / opt) and
+# `task.dataset.seed` (train/val split + AWR pair sampling) so different seeds
+# give genuinely different runs end to end.
+TRAINING_SEED=${TRAINING_SEED:-}
+BASE_TRAINING_SEED=${BASE_TRAINING_SEED:-}
 
 # Per-axis preference settings
 ORDER_MODE=${ORDER_MODE:-random}                  # canonical | reversed | random
@@ -93,6 +108,12 @@ MAX_GRASP_ATTEMPTS=${MAX_GRASP_ATTEMPTS:-3}
 # Adds path-level diversity so the BC policy doesn't memorize a single route.
 # Never applied during CLOSE / RELEASE / LOWER / regrasp.
 PATH_JITTER=${PATH_JITTER:-0.05}
+# Per-object xy noise (m) on the release position. Spreads where each
+# placed object actually lands inside / around its target bin, which makes
+# the *_placed_raw reward signal continuous instead of bimodal (in-bin vs
+# in-bin1). Bin half-width is ~0.10 m; set this larger to occasionally miss
+# the bin entirely (bridges the gap between "placed" and "not placed").
+RELEASE_XY_NOISE=${RELEASE_XY_NOISE:-0.0}
 # Subset of the 4 PickPlace objects to keep in the scene. 4 = full task.
 # 2 = first two in the right-first canonical order (Bread + Can). Inactive
 # objects are cleared out of the bin by the env wrapper.
@@ -158,7 +179,8 @@ if [ ${RESUME_FROM_PHASE} -le 0 ]; then
         --settle_steps ${SETTLE_STEPS} \
         --max_grasp_attempts ${MAX_GRASP_ATTEMPTS} \
         --n_active_objects ${N_ACTIVE_OBJECTS} \
-        --path_jitter ${PATH_JITTER}
+        --path_jitter ${PATH_JITTER} \
+        --release_xy_noise ${RELEASE_XY_NOISE}
 
     # Copy aggregated rollouts.npz to the shared data root for the reward model.
     cp "${SCRIPTED_DIR}/rollouts.npz" "${ROLLOUT_PATH}" || true
@@ -177,7 +199,20 @@ if [ "${SKIP_ROLLOUTS}" = "true" ]; then
     echo "=== Phase 1: SKIPPED (no rollouts mode — using demos only) ==="
 elif [ ${RESUME_FROM_PHASE} -le 1 ]; then
     echo "=== Phase 1: Training base policy on scripted demos ==="
-    python train.py \
+    BASE_OVERRIDES=""
+    if [ -n "${BASE_BATCH_SIZE}" ]; then
+        BASE_OVERRIDES="${BASE_OVERRIDES} dataloader.batch_size=${BASE_BATCH_SIZE} val_dataloader.batch_size=${BASE_BATCH_SIZE}"
+    fi
+    if [ -n "${BASE_LEARNING_RATE}" ]; then
+        BASE_OVERRIDES="${BASE_OVERRIDES} optimizer.learning_rate=${BASE_LEARNING_RATE}"
+    fi
+    if [ -n "${BASE_TRAINING_SEED}" ]; then
+        BASE_OVERRIDES="${BASE_OVERRIDES} training.seed=${BASE_TRAINING_SEED} task.dataset.seed=${BASE_TRAINING_SEED}"
+    fi
+    if [ -n "${EXTRA_BASE_POLICY_OVERRIDES}" ]; then
+        BASE_OVERRIDES="${BASE_OVERRIDES} ${EXTRA_BASE_POLICY_OVERRIDES}"
+    fi
+    eval python train.py \
         --config-name=train_flow_transformer_lowdim_workspace.yaml \
         task=pickplace_4obj_lowdim \
         task.dataset.dataset_path="${SCRIPTED_HDF5}" \
@@ -190,7 +225,8 @@ elif [ ${RESUME_FROM_PHASE} -le 1 ]; then
         n_action_steps=${N_ACTION_STEPS} \
         horizon=${HORIZON} \
         logging.project="${WANDB_PROJECT}" \
-        hydra.run.dir="${BASE_POLICY_DIR}"
+        hydra.run.dir="${BASE_POLICY_DIR}" \
+        ${BASE_OVERRIDES}
 else
     echo "=== Phase 1: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
 fi
@@ -262,6 +298,15 @@ elif [ ${RESUME_FROM_PHASE} -le 4 ]; then
     fi
     if [ "${DISCRETE_CONDITIONING}" = "true" ]; then
         EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++discrete_conditioning=True"
+    fi
+    if [ -n "${BATCH_SIZE}" ]; then
+        EXTRA_OVERRIDES="${EXTRA_OVERRIDES} dataloader.batch_size=${BATCH_SIZE} val_dataloader.batch_size=${BATCH_SIZE}"
+    fi
+    if [ -n "${LEARNING_RATE}" ]; then
+        EXTRA_OVERRIDES="${EXTRA_OVERRIDES} optimizer.learning_rate=${LEARNING_RATE}"
+    fi
+    if [ -n "${TRAINING_SEED}" ]; then
+        EXTRA_OVERRIDES="${EXTRA_OVERRIDES} training.seed=${TRAINING_SEED} task.dataset.seed=${TRAINING_SEED}"
     fi
     if [ -n "${EXTRA_POLICY_OVERRIDES}" ]; then
         EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ${EXTRA_POLICY_OVERRIDES}"

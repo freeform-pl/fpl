@@ -77,10 +77,12 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
             max_train_episodes: int = None,
             n_active_objects: int = 4,  # PickPlace: zero out inactive object slots in obs
             augment_score: float = 0.0,  # Uniform [-augment_score, +augment_score] noise added to conditioning dims at sample time (continuous only).
+            round_scores: bool = True,   # Quantise stored conditioning to 0.1 buckets at construction (and after augment noise at sample time). False = use raw z-scores.
             **kwargs,  # absorb extra keys from base task config (dataset_path, abs_action, etc.)
         ):
         self.n_active_objects = int(n_active_objects)
         self.augment_score = float(augment_score)
+        self.round_scores = bool(round_scores)
         self.discrete_conditioning = bool(discrete_conditioning)
         self.obs_keys = list(obs_keys)
         obs_keys = list(obs_keys)
@@ -97,12 +99,18 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
         rollout_z = np.array(scores_data['rollout_scores_zscore'], dtype=np.float32)  # (N_rollout, K)
         demo_z = np.array(scores_data['demo_scores_zscore'], dtype=np.float32)  # (N_demo, K)
 
-        # Discretize scores into 0.1 buckets: -1.0, -0.9, ..., 0.9, 1.0
+        # Clip to [-1, 1] always (matches the reward model's output range
+        # and keeps the conditioning input bounded). Round to 0.1 buckets
+        # only when round_scores=True (or forced by discrete_conditioning,
+        # which needs a bucket to one-hot into).
+        do_round = self.round_scores or self.discrete_conditioning
         if len(rollout_z) > 0:
-            rollout_z = np.round(rollout_z * 10) / 10
+            if do_round:
+                rollout_z = np.round(rollout_z * 10) / 10
             rollout_z = np.clip(rollout_z, -1.0, 1.0)
         if len(demo_z) > 0:
-            demo_z = np.round(demo_z * 10) / 10
+            if do_round:
+                demo_z = np.round(demo_z * 10) / 10
             demo_z = np.clip(demo_z, -1.0, 1.0)
 
         # Infer num_reward_dims from scores file
@@ -338,7 +346,9 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
             cond = obs[..., -self.conditioning_dims:]
             noise = np.random.uniform(-self.augment_score, self.augment_score,
                                       size=cond.shape).astype(obs.dtype)
-            new_cond = np.round((cond + noise) * 10) / 10
+            new_cond = cond + noise
+            if self.round_scores:
+                new_cond = np.round(new_cond * 10) / 10
             new_cond = np.clip(new_cond, -1.0, 1.0)
             obs[..., -self.conditioning_dims:] = new_cond.astype(obs.dtype)
             data['obs'] = obs

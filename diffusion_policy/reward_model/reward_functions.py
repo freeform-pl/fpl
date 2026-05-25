@@ -192,6 +192,33 @@ def cereal_placed(obs, actions=None, reward_series=None):  return _placed(obs, 2
 def can_placed(obs, actions=None, reward_series=None):     return _placed(obs, 3)
 
 
+def _placed_raw(obs, obj_id):
+    """Continuous version of _placed: negative xy-distance from the object's
+    final position to the target bin center. Range ~[-0.6, 0]:
+      - object centered in target bin → ≈ 0
+      - object at far edge of target  → ≈ -0.1
+      - object still in bin1 / on table → ≈ -0.4 (workspace-scale)
+    Returns 0 if obs schema isn't PickPlace.
+    """
+    if obs is None or len(obs) == 0 or not _has_pickplace_obs(obs):
+        return 0.0
+    final_pos = _obj_pos(obs[-1], obj_id)
+    if final_pos.shape[0] < 2:
+        return 0.0
+    x_lo, x_hi, y_lo, y_hi = PICKPLACE_BIN_BOUNDS[obj_id]
+    tgt_x = (x_lo + x_hi) / 2.0
+    tgt_y = (y_lo + y_hi) / 2.0
+    dx = float(final_pos[0]) - tgt_x
+    dy = float(final_pos[1]) - tgt_y
+    return -float(np.sqrt(dx * dx + dy * dy))
+
+
+def milk_placed_raw(obs, actions=None, reward_series=None):    return _placed_raw(obs, 0)
+def bread_placed_raw(obs, actions=None, reward_series=None):   return _placed_raw(obs, 1)
+def cereal_placed_raw(obs, actions=None, reward_series=None):  return _placed_raw(obs, 2)
+def can_placed_raw(obs, actions=None, reward_series=None):     return _placed_raw(obs, 3)
+
+
 def order_reward(obs, actions=None, reward_series=None):
     """PickPlace-only axis. Returns 0 if the obs schema isn't PickPlace.
 
@@ -243,6 +270,56 @@ def order_reward(obs, actions=None, reward_series=None):
     return 0.0
 
 
+def order_reward_raw(obs, actions=None, reward_series=None):
+    """Continuous time-weighted version of order_reward.
+
+    For the first two active objects (in right-first canonical order):
+      `order_reward_raw = (t_b - t_a) / T`
+    where `t_a` is the first time the first-canonical object enters its bin
+    and `t_b` is the same for the second-canonical object, both clipped to
+    T if never placed.
+
+    Range: roughly [-1, +1].
+      - +1: canonical-direction (a placed early, b placed late, or only a placed)
+      -  0: simultaneous placement, OR no placements at all
+      - -1: reversed-direction (b placed early, a placed late, or only b placed)
+
+    Partial placements get extreme values (≈ ±0.8) which is what we want for
+    a *direction* signal — the magnitude is informational. The composite
+    reward still penalizes partial completion via the *_placed_raw axes.
+    """
+    if obs is None or len(obs) == 0 or not _has_pickplace_obs(obs):
+        return 0.0
+    T = len(obs)
+    if T == 0:
+        return 0.0
+    # Determine active object subset from initial positions.
+    active_ids = []
+    for obj_id in range(4):
+        x0 = float(obs[0, obj_id * 14])
+        y0 = float(obs[0, obj_id * 14 + 1])
+        if abs(x0) <= 1.0 and abs(y0) <= 1.0:
+            active_ids.append(obj_id)
+    # Need at least 2 active objects in canonical order to define direction.
+    active_canonical = [i for i in PICKPLACE_CANONICAL_ORDER if i in active_ids][:2]
+    if len(active_canonical) < 2:
+        return 0.0
+    obj_a, obj_b = active_canonical
+    # First-placement times (T if never placed).
+    t_a, t_b = T, T
+    for t in range(T):
+        if t_a == T and _object_in_bin(obs[t], obj_a):
+            t_a = t
+        if t_b == T and _object_in_bin(obs[t], obj_b):
+            t_b = t
+        if t_a < T and t_b < T:
+            break
+    # Neither placed → 0.
+    if t_a == T and t_b == T:
+        return 0.0
+    return float(t_b - t_a) / float(T)
+
+
 def _drop_value(obs, obj_id, actions=None):
     """+1 careful, -1 drop, 0 if the object never lands in its bin.
     PickPlace-only — returns 0 if the obs schema isn't PickPlace."""
@@ -258,6 +335,55 @@ def milk_drop(obs, actions=None, reward_series=None):    return _drop_value(obs,
 def bread_drop(obs, actions=None, reward_series=None):   return _drop_value(obs, 1, actions=actions)
 def cereal_drop(obs, actions=None, reward_series=None):  return _drop_value(obs, 2, actions=actions)
 def can_drop(obs, actions=None, reward_series=None):     return _drop_value(obs, 3, actions=actions)
+
+
+def _drop_value_raw(obs, obj_id, actions=None):
+    """Continuous version of _drop_value: negative of the release-height
+    (gripper z when the object first enters its bin). Smaller release
+    height = more careful = larger (less negative) value.
+
+    Fallback ordering when the object never enters its bin:
+      1. If the object WAS lifted (z ↑ > 5 cm above start) but never reached
+         the bin, use the max eef_z observed after the lift event. This
+         captures "released mid-arc" demos with a value that smoothly extends
+         the in-bin release-height distribution.
+      2. If the object was never lifted at all (grasp totally failed), use
+         -1.10 (just below the worst real drop) so failure ranks below any
+         actual release without dominating the reward scale.
+
+    Typical raw values:
+      - careful release rz ~ 0.84-0.91 → raw ~ -0.84 to -0.91
+      - high drop      rz ~ 0.96-1.04 → raw ~ -0.96 to -1.04
+      - lifted but not placed (mid-arc release) → -0.95 to -1.10 (continuous)
+      - never lifted at all → -1.10 (sentinel)
+    PickPlace-only; returns 0 if obs schema isn't PickPlace.
+    """
+    if obs is None or len(obs) == 0 or not _has_pickplace_obs(obs):
+        return 0.0
+    rz = _release_eef_z(obs, obj_id, actions=actions)
+    if rz is not None:
+        return -float(rz)
+    # Object never landed in its target bin. If it WAS lifted (grasp succeeded
+    # at least once), fall back to the max eef_z observed during the lift
+    # phase — corresponds to where the gripper was when it released into
+    # mid-air. Smooths the failure tail rather than dumping every failure on
+    # the same value.
+    lift_times = _first_lift_times(obs)
+    if lift_times[obj_id] < len(obs):
+        eef_z_post_lift = [
+            float(_eef_pos(obs[t])[2]) for t in range(lift_times[obj_id], len(obs))
+        ]
+        if eef_z_post_lift:
+            # Clamp to -1.10 so the worst mid-arc drop never dips below the
+            # never-lifted sentinel — keeps the failure cluster compact.
+            return -float(min(max(eef_z_post_lift), 1.10))
+    return -1.10
+
+
+def milk_drop_raw(obs, actions=None, reward_series=None):    return _drop_value_raw(obs, 0, actions=actions)
+def bread_drop_raw(obs, actions=None, reward_series=None):   return _drop_value_raw(obs, 1, actions=actions)
+def cereal_drop_raw(obs, actions=None, reward_series=None):  return _drop_value_raw(obs, 2, actions=actions)
+def can_drop_raw(obs, actions=None, reward_series=None):     return _drop_value_raw(obs, 3, actions=actions)
 
 
 def drop_reward(obs, actions=None, reward_series=None):
@@ -290,6 +416,39 @@ def peg_reward(obs, actions=None, reward_series=None):
     return 0.0
 
 
+# Right (correct) peg location for slow_fast / square_twopeg.
+PEG_RIGHT_XY = np.array([0.23, -0.1], dtype=np.float32)
+# Workspace-scale max distance used to normalise peg_reward_raw into [0, 1].
+# Nuts start somewhere in the central region and need to travel <= ~0.4 m
+# to reach the right peg; using 0.4 means any nut on the wrong peg / on the
+# floor gets a value close to 0.
+PEG_MAX_DISTANCE = 0.4
+
+
+def peg_reward_raw(obs, actions=None, reward_series=None):
+    """Continuous version of peg_reward: how close the nut's final xy is to
+    the RIGHT peg, normalised so the result sits roughly in [0, 1] and
+    matches the scale of `speed_reward`.
+
+      raw = clamp(1 - distance_to_right_peg / PEG_MAX_DISTANCE, 0, 1)
+
+    Values:
+      - 1.0  : nut exactly on the right peg
+      - ~0.9 : nut on the peg with a small offset
+      - ~0.5 : nut on the left peg (~0.2 m away from the right one)
+      - ~0.0 : nut on the floor far from either peg
+
+    This collapses the discrete {-1, 0, +1} peg_reward into a single
+    continuous "closeness to target" signal that combines cleanly with
+    `speed_reward` (also ~[0, 1]) in a composite-mean reward.
+    """
+    if obs is None or len(obs) == 0:
+        return 0.0
+    nut_xy = obs[-1, :2].astype(np.float32)
+    distance = float(np.linalg.norm(nut_xy - PEG_RIGHT_XY))
+    return float(max(0.0, 1.0 - distance / PEG_MAX_DISTANCE))
+
+
 # ----------------------------------------------------------------------------
 # Registry: axis name -> function. Add new axes by adding a function and an
 # entry here.
@@ -299,6 +458,7 @@ AXIS_FUNCTIONS = {
     'speed_reward':   speed_reward,
     'smoothness':     smoothness,
     'order_reward':   order_reward,
+    'order_reward_raw': order_reward_raw,
     'milk_placed':    milk_placed,
     'bread_placed':   bread_placed,
     'cereal_placed':  cereal_placed,
@@ -309,6 +469,19 @@ AXIS_FUNCTIONS = {
     'can_drop':       can_drop,
     'drop_reward':    drop_reward,
     'peg_reward':     peg_reward,
+    'peg_reward_raw': peg_reward_raw,
+    # Continuous (distance-based) versions of placed/drop. Use these as
+    # conditioning axes when you want a denser reward signal than the
+    # discrete {-1, 0, +1} versions; the discrete ones remain available for
+    # logging/comparison.
+    'milk_placed_raw':    milk_placed_raw,
+    'bread_placed_raw':   bread_placed_raw,
+    'cereal_placed_raw':  cereal_placed_raw,
+    'can_placed_raw':     can_placed_raw,
+    'milk_drop_raw':      milk_drop_raw,
+    'bread_drop_raw':     bread_drop_raw,
+    'cereal_drop_raw':    cereal_drop_raw,
+    'can_drop_raw':       can_drop_raw,
 }
 
 
@@ -331,15 +504,59 @@ PICKPLACE_OBJECT_NAMES = {0: 'milk', 1: 'bread', 2: 'cereal', 3: 'can'}
 
 
 def get_pickplace_eval_axes(n_active_objects):
-    """Canonical per-axis eval-logging set for a PickPlace variant:
+    """Canonical (discrete) per-axis eval set for a PickPlace variant:
     order_reward + per-active-object placed + per-active-object drop. Active
     subset is the right-first canonical prefix (Bread, Can, Milk, Cereal).
+
+    Used for mean_score (sum) and mean_strict_success — both rely on the
+    discrete {-1, 0, +1} semantics. For the larger set that also includes
+    the continuous raw axes (for logging), use `get_pickplace_logging_axes`.
     """
     n = max(1, min(int(n_active_objects), 4))
     active_ids = PICKPLACE_CANONICAL_ORDER[:n]
     axes = ['order_reward']
     axes += [f'{PICKPLACE_OBJECT_NAMES[i]}_placed' for i in active_ids]
     axes += [f'{PICKPLACE_OBJECT_NAMES[i]}_drop' for i in active_ids]
+    return axes
+
+
+def get_slow_fast_logging_axes():
+    """Canonical per-axis eval-logging set for the slow_fast (square_twopeg)
+    benchmark. Includes both the discrete and continuous versions of the
+    peg-position signal so eval shows both at once.
+      - success    (0 / 1)
+      - speed_reward (continuous in [0, 1])
+      - smoothness   (continuous in [0, 1])
+      - peg_reward     (discrete -1 / 0 / +1)
+      - peg_reward_raw (continuous in [0, 1], distance to right peg)
+    """
+    return [
+        'success',
+        'speed_reward',
+        'smoothness',
+        'peg_reward',
+        'peg_reward_raw',
+    ]
+
+
+def get_pickplace_logging_axes(n_active_objects):
+    """Full set of per-axis values to log to wandb during eval: the discrete
+    axes from `get_pickplace_eval_axes` plus their continuous `_raw`
+    counterparts. The raw axes have a fundamentally different scale (xy
+    distance / release-height in meters, all ≤ 0), so they're kept out of
+    the discrete-only mean_score / strict_success calculations.
+    """
+    n = max(1, min(int(n_active_objects), 4))
+    active_ids = PICKPLACE_CANONICAL_ORDER[:n]
+    axes = ['order_reward', 'order_reward_raw']
+    for i in active_ids:
+        name = PICKPLACE_OBJECT_NAMES[i]
+        axes.append(f'{name}_placed')
+        axes.append(f'{name}_placed_raw')
+    for i in active_ids:
+        name = PICKPLACE_OBJECT_NAMES[i]
+        axes.append(f'{name}_drop')
+        axes.append(f'{name}_drop_raw')
     return axes
 
 
@@ -353,17 +570,21 @@ def compute_pickplace_eval_log(obs_seqs, action_seqs, prefixes,
       prefixes:    list of str per rollout (e.g. 'test/', 'train/')
       n_active_objects: used for strict_success bookkeeping
       axis_names: list of base axes to log. If None, derived from
-                  get_pickplace_eval_axes(n_active_objects).
+                  get_pickplace_logging_axes(n_active_objects), which
+                  includes both discrete and continuous (_raw) variants.
 
     Returns dict {prefix + key: mean_value} with one entry per (prefix, axis)
-    plus '{prefix}mean_strict_success' (positive order AND every per-object
-    *_drop axis > 0) when the relevant axes are present.
+    plus '{prefix}mean_strict_success' (positive order AND every DISCRETE
+    per-object *_drop axis > 0). Raw axes are logged but excluded from
+    strict_success since they're always ≤ 0.
     """
     import collections
     if axis_names is None:
-        axis_names = get_pickplace_eval_axes(n_active_objects)
+        axis_names = get_pickplace_logging_axes(n_active_objects)
 
     axis_accum = {ax: collections.defaultdict(list) for ax in axis_names}
+    # Strict success ignores raw axes — they're always ≤ 0 and would prevent
+    # the criterion from ever firing.
     strict_drop_axes = [ax for ax in axis_names
                         if ax.endswith('_drop') and ax != 'drop_reward']
     strict_axes_available = ('order_reward' in axis_names

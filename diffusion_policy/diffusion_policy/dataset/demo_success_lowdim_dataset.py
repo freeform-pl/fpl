@@ -51,11 +51,19 @@ class DemoSuccessLowdimDataset(BaseLowdimDataset):
             val_ratio: float = 0.0,
             max_train_episodes: int = None,
             n_active_objects: int = 4,  # PickPlace: zero out inactive object slots in obs
+            filter_to_right_peg: bool = False,  # slow_fast: keep only demos/rollouts where the nut ended on the right peg
             **kwargs,
         ):
         self.n_active_objects = int(n_active_objects)
         self.obs_keys = list(obs_keys)
+        self.filter_to_right_peg = bool(filter_to_right_peg)
         obs_keys = list(obs_keys)
+        # Lazy import to avoid a circular dep in non-slow_fast tasks.
+        if self.filter_to_right_peg:
+            from reward_model.reward_functions import peg_reward as _peg_reward_fn
+            self._peg_reward_fn = _peg_reward_fn
+            print(f"[DemoSuccessLowdimDataset] filter_to_right_peg=True — "
+                  f"only keeping demos/rollouts where the nut ends on the right peg (peg_reward=+1).")
         replay_buffer = ReplayBuffer.create_empty_numpy()
 
         n_rollouts_total = 0
@@ -77,7 +85,6 @@ class DemoSuccessLowdimDataset(BaseLowdimDataset):
                 n_rollouts_total += 1
                 if success[i] < 1.0:
                     continue
-                n_rollouts_success += 1
 
                 L_obs = int(rollout_lengths[i])
                 L_act = min(L_obs - 1, rollout_actions.shape[1])
@@ -88,12 +95,20 @@ class DemoSuccessLowdimDataset(BaseLowdimDataset):
                 act_i = rollout_actions[i, :L_act].astype(np.float32)
                 L = min(len(obs_i), L_act)
 
+                # Optional right-peg filter (slow_fast): drop rollouts where
+                # the nut ended on the wrong peg.
+                if self.filter_to_right_peg:
+                    if self._peg_reward_fn(obs_i[:L]) < 0.99:
+                        continue
+                n_rollouts_success += 1
+
                 replay_buffer.add_episode({
                     'obs': obs_i[:L],
                     'action': act_i[:L],
                 })
 
-            print(f"Rollouts: {n_rollouts_success}/{n_rollouts_total} successful")
+            tag = "right-peg" if self.filter_to_right_peg else "successful"
+            print(f"Rollouts: {n_rollouts_success}/{n_rollouts_total} {tag}")
         else:
             print("Rollouts: SKIPPED (rollout_data_path='none' — demos-only mode)")
 
@@ -119,13 +134,19 @@ class DemoSuccessLowdimDataset(BaseLowdimDataset):
                     act_i = np.concatenate([pos, rot6d, gripper], axis=-1).astype(np.float32)
 
                 L = min(len(obs_i), len(act_i))
+                # Optional right-peg filter (slow_fast): drop demos where the
+                # nut ended on the wrong peg.
+                if self.filter_to_right_peg:
+                    if self._peg_reward_fn(obs_i[:L]) < 0.99:
+                        continue
                 replay_buffer.add_episode({
                     'obs': obs_i[:L],
                     'action': act_i[:L],
                 })
                 n_demos += 1
 
-        print(f"Total episodes: {replay_buffer.n_episodes} ({n_demos} demos + {n_rollouts_success} successful rollouts)")
+        tag = "right-peg" if self.filter_to_right_peg else "all"
+        print(f"Total episodes: {replay_buffer.n_episodes} ({n_demos} {tag} demos + {n_rollouts_success} kept rollouts)")
 
         val_mask = get_val_mask(
             n_episodes=replay_buffer.n_episodes,
