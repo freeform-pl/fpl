@@ -59,5 +59,5 @@ export N_PAIRS=70
 
 # Phase 3 trains the reward model (scores.json) for THIS pipeline dir; phase 4
 # trains the AWR policy off those scores. No iterative refinement for AWR.
-export RESUME_FROM_PHASE=3
+export RESUME_FROM_PHASE=4
 bash scripts/run_pipeline_pickplace.sh

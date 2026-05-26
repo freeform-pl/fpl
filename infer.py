@@ -834,9 +834,11 @@ def main():
             gamma=saved_args.get("gamma", 0.99),
         ).to(device)
     elif model_type in ("qwen", "qwen_lora", "qwen_open",
-                         "qwen_discounted", "qwen_open_discounted"):
-        is_open = model_type in ("qwen_open", "qwen_open_discounted")
+                         "qwen_discounted", "qwen_open_discounted",
+                         "qwen_open_cum"):
+        is_open = model_type in ("qwen_open", "qwen_open_discounted", "qwen_open_cum")
         is_discounted = model_type in ("qwen_discounted", "qwen_open_discounted")
+        is_open_cum = model_type == "qwen_open_cum"
         model = QwenRewardModel(
             num_preferences=1 if is_open else len(args.preference_keys),
             model_name=saved_args.get("qwen_model_name", "Qwen/Qwen3-VL-4B-Instruct"),
@@ -846,6 +848,7 @@ def main():
             reward_sigmoid=saved_args.get("reward_sigmoid", False),
             gradient_checkpointing=False,  # not needed at inference
             discounted=is_discounted,
+            open_cum=is_open_cum,
         ).to(device)
         args.is_open_qwen = is_open
     else:

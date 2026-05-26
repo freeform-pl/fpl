@@ -49,6 +49,10 @@ find_best_ckpt() {
 N_SCRIPTED=${N_SCRIPTED:-200}
 N_ROLLOUTS=${N_ROLLOUTS:-200}
 N_EVAL_ROLLOUTS=${N_EVAL_ROLLOUTS:-50}
+# Iterative refinement after Phase 5 (matches slow_fast pipeline):
+N_ITERATIONS=${N_ITERATIONS:-0}              # number of iterative refinement rounds after initial training
+N_ITER_ROLLOUTS=${N_ITER_ROLLOUTS:-200}      # total rollouts per iteration (split evenly across targets)
+CONDITIONING_TARGETS=${CONDITIONING_TARGETS:-}  # semicolon-separated z-vectors, e.g. "0.9,0.9,0.9,0.9,0.9;-0.9,0.9,0.9,-0.9,-0.9"
 PIPELINE_DIR=${PIPELINE_DIR:-"pipeline_output_pickplace"}
 BASE_POLICY_EPOCHS=${BASE_POLICY_EPOCHS:-5000}
 REWARD_EPOCHS=${REWARD_EPOCHS:-50}
@@ -264,14 +268,18 @@ fi
 # ============================================================
 # Phase 3: Train reward model on rollouts + score episodes
 # ============================================================
+# N_PAIRS_FLAG is defined at top-level so Phase 3 AND the iterative-refinement
+# block (Step B) both see it — Phase 3 may be skipped via RESUME_FROM_PHASE>3
+# or SKIP_REWARD_MODEL=true, but iter Step B always trains a reward model.
+N_PAIRS_FLAG=""
+if [ -n "${N_PAIRS:-}" ]; then
+    N_PAIRS_FLAG="--n_pairs ${N_PAIRS}"
+fi
+
 if [ "${SKIP_REWARD_MODEL}" = "true" ]; then
     echo "=== Phase 3: SKIPPED ==="
 elif [ ${RESUME_FROM_PHASE} -le 3 ]; then
     echo "=== Phase 3: Training reward model ==="
-    N_PAIRS_FLAG=""
-    if [ -n "${N_PAIRS:-}" ]; then
-        N_PAIRS_FLAG="--n_pairs ${N_PAIRS}"
-    fi
     python reward_model/train_reward_model.py \
         --rollout_data "${ROLLOUT_PATH}" \
         --demo_hdf5 "${SCRIPTED_HDF5}" \
@@ -369,6 +377,142 @@ if [ ${RESUME_FROM_PHASE} -le 5 ]; then
     python scripts/eval_conditioned.py ${EVAL_ARGS}
 else
     echo "=== Phase 5: SKIPPED ==="
+fi
+
+# ============================================================
+# Iterative refinement (matches slow_fast pipeline): for each iteration,
+#   A) collect rollouts from the current conditioned policy at multiple
+#      conditioning targets,
+#   B) retrain the reward model on demos + all rollouts so far,
+#   C) retrain the conditioned policy off the new scores.
+# Set N_ITERATIONS=0 to skip.
+# ============================================================
+if [ ${N_ITERATIONS} -gt 0 ]; then
+    echo "=== Starting ${N_ITERATIONS} iterative refinement rounds ==="
+
+    if [ -z "${CONDITIONING_TARGETS}" ]; then
+        echo "ERROR: CONDITIONING_TARGETS must be set for iterative refinement"
+        exit 1
+    fi
+
+    ITER_ROLLOUT_DIR="${PIPELINE_DIR}/iter_rollouts"
+    mkdir -p "${ITER_ROLLOUT_DIR}"
+
+    # Track all rollout npz files (comma-separated) across iterations
+    ALL_ROLLOUT_FILES=""
+    if [ "${ROLLOUT_PATH}" != "none" ] && [ -f "${ROLLOUT_PATH}" ]; then
+        ALL_ROLLOUT_FILES="${ROLLOUT_PATH}"
+    fi
+
+    for ITER in $(seq 1 ${N_ITERATIONS}); do
+        echo ""
+        echo "============================================================"
+        echo "=== Iteration ${ITER}/${N_ITERATIONS}"
+        echo "============================================================"
+
+        ITER_OUTPUT_DIR="${ITER_ROLLOUT_DIR}/iter${ITER}"
+        ITER_REWARD_DIR="${PIPELINE_DIR}/reward_model_iter${ITER}"
+        ITER_POLICY_DIR="${PIPELINE_DIR}/policy_output_iter${ITER}"
+        STEP_A_PHASE=$((6 + 3*(ITER-1)))
+        STEP_B_PHASE=$((7 + 3*(ITER-1)))
+        STEP_C_PHASE=$((8 + 3*(ITER-1)))
+
+        # --- Step A: Collect rollouts from conditioned policy ---
+        if [ ${RESUME_FROM_PHASE} -le ${STEP_A_PHASE} ]; then
+            echo "=== Iter ${ITER} Step A (phase ${STEP_A_PHASE}): Collecting ${N_ITER_ROLLOUTS} total rollouts from conditioned policy ==="
+            echo "  Conditioning targets: ${CONDITIONING_TARGETS}"
+            COLLECT_ARGS="--checkpoint ${COND_CKPT} --n_rollouts ${N_ITER_ROLLOUTS}"
+            COLLECT_ARGS="${COLLECT_ARGS} --output_dir ${ITER_OUTPUT_DIR}"
+            COLLECT_ARGS="${COLLECT_ARGS} --wandb_project ${WANDB_PROJECT}"
+            COLLECT_ARGS="${COLLECT_ARGS} --conditioned --num_reward_dims ${NUM_REWARD_DIMS}"
+            COLLECT_ARGS="${COLLECT_ARGS} --conditioning_targets '${CONDITIONING_TARGETS}'"
+            if [ "${DISCRETE_CONDITIONING}" = "true" ]; then
+                COLLECT_ARGS="${COLLECT_ARGS} --discrete_conditioning --n_cond_bins 21"
+            fi
+            eval python scripts/collect_rollouts.py ${COLLECT_ARGS}
+        else
+            echo "=== Iter ${ITER} Step A: SKIPPED (RESUME_FROM_PHASE=${RESUME_FROM_PHASE} > ${STEP_A_PHASE}) — reusing rollouts at ${ITER_OUTPUT_DIR} ==="
+        fi
+
+        # Gather npz files from this iteration (regardless of whether Step A ran)
+        ITER_FILES=$(find "${ITER_OUTPUT_DIR}" -name "rollouts_cond_*.npz" -type f | sort | tr '\n' ',' | sed 's/,$//')
+        if [ -n "${ALL_ROLLOUT_FILES}" ]; then
+            ALL_ROLLOUT_FILES="${ALL_ROLLOUT_FILES},${ITER_FILES}"
+        else
+            ALL_ROLLOUT_FILES="${ITER_FILES}"
+        fi
+        echo "  All rollout files: ${ALL_ROLLOUT_FILES}"
+
+        # --- Step B: Retrain reward model ---
+        if [ ${RESUME_FROM_PHASE} -le ${STEP_B_PHASE} ]; then
+            echo "=== Iter ${ITER} Step B (phase ${STEP_B_PHASE}): Training reward model ==="
+            python reward_model/train_reward_model.py \
+                --rollout_data "${ALL_ROLLOUT_FILES}" \
+                --demo_hdf5 "${SCRIPTED_HDF5}" \
+                --output_dir "${ITER_REWARD_DIR}" \
+                --epochs ${REWARD_EPOCHS} \
+                --wandb_project "${WANDB_PROJECT}" \
+                --reward_axes "${REWARD_AXES}" \
+                --stride ${REWARD_MODEL_STRIDE} \
+                ${N_PAIRS_FLAG}
+        else
+            echo "=== Iter ${ITER} Step B: SKIPPED (RESUME_FROM_PHASE=${RESUME_FROM_PHASE} > ${STEP_B_PHASE}) — reusing reward model at ${ITER_REWARD_DIR} ==="
+        fi
+        SCORES_PATH="${ITER_REWARD_DIR}/scores.json"
+
+        # --- Step C: Retrain conditioned policy ---
+        if [ ${RESUME_FROM_PHASE} -le ${STEP_C_PHASE} ]; then
+            echo "=== Iter ${ITER} Step C (phase ${STEP_C_PHASE}): Training conditioned policy ==="
+            EXTRA_OVERRIDES="++task.env_runner.use_pickplace_wrapper=True ++task.env_runner.n_active_objects=${N_ACTIVE_OBJECTS} ++task.dataset.n_active_objects=${N_ACTIVE_OBJECTS}"
+            EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++num_reward_dims=${NUM_REWARD_DIMS} ++scores_path=${SCORES_PATH}"
+            if [ "${DISCRETE_CONDITIONING}" = "true" ]; then
+                EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++discrete_conditioning=True"
+            fi
+            if [ -n "${BATCH_SIZE}" ]; then
+                EXTRA_OVERRIDES="${EXTRA_OVERRIDES} dataloader.batch_size=${BATCH_SIZE} val_dataloader.batch_size=${BATCH_SIZE}"
+            fi
+            if [ -n "${LEARNING_RATE}" ]; then
+                EXTRA_OVERRIDES="${EXTRA_OVERRIDES} optimizer.learning_rate=${LEARNING_RATE}"
+            fi
+            if [ -n "${TRAINING_SEED}" ]; then
+                EXTRA_OVERRIDES="${EXTRA_OVERRIDES} training.seed=${TRAINING_SEED} task.dataset.seed=${TRAINING_SEED}"
+            fi
+            if [ -n "${EXTRA_POLICY_OVERRIDES}" ]; then
+                EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ${EXTRA_POLICY_OVERRIDES}"
+            fi
+            eval python train.py \
+                --config-name="${COND_CONFIG}" \
+                task=pickplace_4obj_lowdim \
+                "rollout_data_path=\'${ALL_ROLLOUT_FILES}\'" \
+                demo_hdf5_path="${SCRIPTED_HDF5}" \
+                training.num_epochs=${COND_POLICY_EPOCHS} \
+                training.resume=False \
+                logging.resume=False \
+                n_obs_steps=${N_OBS_STEPS} \
+                n_action_steps=${N_ACTION_STEPS} \
+                horizon=${HORIZON} \
+                logging.project="${WANDB_PROJECT}" \
+                hydra.run.dir="${ITER_POLICY_DIR}" \
+                task.env_runner.dataset_path="${SCRIPTED_HDF5}" \
+                ${EXTRA_OVERRIDES} \
+                ${EVAL_Z_OVERRIDES}
+        else
+            echo "=== Iter ${ITER} Step C: SKIPPED (RESUME_FROM_PHASE=${RESUME_FROM_PHASE} > ${STEP_C_PHASE}) — reusing policy at ${ITER_POLICY_DIR} ==="
+        fi
+
+        # Find best checkpoint from this iteration for the next iteration's rollout collection
+        ITER_CKPT_DIR="${ITER_POLICY_DIR}/checkpoints"
+        if [ "${USE_BEST_CKPT}" = "true" ]; then
+            COND_CKPT=$(find_best_ckpt "${ITER_CKPT_DIR}")
+            if [ -z "${COND_CKPT}" ]; then
+                COND_CKPT="${ITER_CKPT_DIR}/latest.ckpt"
+            fi
+        else
+            COND_CKPT="${ITER_CKPT_DIR}/latest.ckpt"
+        fi
+        echo "Iter ${ITER}: Using checkpoint ${COND_CKPT}"
+    done
+    echo "=== All ${N_ITERATIONS} iterations complete ==="
 fi
 
 echo "=== Pipeline complete ==="

@@ -48,5 +48,5 @@ export N_ITERATIONS=3
 export N_ITER_ROLLOUTS=200
 export CONDITIONING_TARGETS="0.8;0.9;0.7"
 
-export RESUME_FROM_PHASE=4
+export RESUME_FROM_PHASE=6
 bash scripts/run_pipeline_slow_fast.sh

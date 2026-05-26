@@ -35,7 +35,7 @@ export COND_POLICY_EPOCHS=1500
 # BATCH_SIZE / LEARNING_RATE intentionally left unset to use the AWR
 # workspace YAML defaults (batch=256, lr=1e-4) — matches pickplace_2_final
 # AWR which also uses the YAML defaults.
-export TRAINING_SEED=62
+export TRAINING_SEED=82
 export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_every=100 ++training.checkpoint_every=100"
 
 export N_PAIRS=100

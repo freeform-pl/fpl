@@ -273,9 +273,16 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
     if obs_dim is None:
         obs_dim = demo_episodes[0].shape[-1]
 
-    # Pad demo obs/actions to same T as rollouts.
+    # Pad demo obs/actions to same T as rollouts. max_T = max over the
+    # longest trajectory in any of: rollout obs, rollout actions, demos.
+    # Rollout obs and actions can have different padded T across iteration-
+    # rollout files (one file's actions may be longer than another file's
+    # obs), so we need to size the combined array to the absolute longest.
     max_demo_len = max(demo_lengths_list) if demo_lengths_list else 0
-    max_T = max(rollout_obs.shape[1], max_demo_len) if has_rollouts else max_demo_len
+    if has_rollouts:
+        max_T = max(rollout_obs.shape[1], rollout_actions.shape[1], max_demo_len)
+    else:
+        max_T = max_demo_len
     act_dim_demo = demo_actions_list[0].shape[-1] if demo_actions_list else (
         rollout_actions.shape[-1] if has_rollouts else 1)
 
@@ -287,11 +294,14 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
         demo_actions_padded[i, :len(a), :a.shape[-1]] = a
     demo_lengths = np.array(demo_lengths_list, dtype=np.int32)
 
-    # Pad rollout obs/actions if demos are longer.
-    if has_rollouts and max_T > rollout_obs.shape[1]:
+    # Pad rollout obs/actions to max_T if either is shorter. (Either dimension
+    # could be the shorter one — obs typically T+1 vs action T, plus per-file
+    # padding can leave them inconsistent across files.)
+    if has_rollouts and rollout_obs.shape[1] < max_T:
         new_obs = np.zeros((n_rollouts, max_T, obs_dim), dtype=np.float32)
         new_obs[:, :rollout_obs.shape[1]] = rollout_obs
         rollout_obs = new_obs
+    if has_rollouts and rollout_actions.shape[1] < max_T:
         new_act = np.zeros((n_rollouts, max_T, rollout_actions.shape[-1]), dtype=np.float32)
         new_act[:, :rollout_actions.shape[1]] = rollout_actions
         rollout_actions = new_act

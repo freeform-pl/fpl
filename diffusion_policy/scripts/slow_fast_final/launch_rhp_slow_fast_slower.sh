@@ -52,7 +52,7 @@ export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_ever
 
 # Eval z-score conditioning.
 export EVAL_Z_POSITIVE="[0.9,0.8]"
-export EVAL_Z_NEGATIVE="[0.6,0.8]"
+export EVAL_Z_NEGATIVE="[0.9,-0.8]"
 
 export N_PAIRS=100
 
@@ -62,5 +62,5 @@ export N_ITER_ROLLOUTS=200
 export CONDITIONING_TARGETS="0.5,0.9;0.6,0.9;0.7,0.9;0.8,0.9;0.9,0.9"
 
 # Phase 3 trains the reward model in THIS pipeline dir.
-export RESUME_FROM_PHASE=4
+export RESUME_FROM_PHASE=7
 bash scripts/run_pipeline_slow_fast.sh

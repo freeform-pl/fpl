@@ -9,6 +9,9 @@ https://wandb.ai/memory_rl/slow_fast_final_single_pref/runs/c8lf3t5a
     https://wandb.ai/memory_rl/slow_fast_final_rhp/runs/wlwh52ix
     https://wandb.ai/memory_rl/slow_fast_final_rhp/runs/gc6pswn3
 
+    "rhp neg"
+    https://wandb.ai/memory_rl/slow_fast_final_rhp/runs/wxv009bb
+    
     "success only": 
 https://wandb.ai/memory_rl/slow_fast_final_demo_success/runs/uaaitib7?nw=nwusermarcelto
 https://wandb.ai/memory_rl/slow_fast_final_demo_success/runs/61jq0cg6
@@ -19,7 +22,9 @@ https://wandb.ai/memory_rl/slow_fast_final_demo_success/runs/vq37ez7e
 https://wandb.ai/memory_rl/slow_fast_final_demo_success/runs/o08u3byu
 https://wandb.ai/memory_rl/slow_fast_final_demo_only/runs/981lr09x?nw=nwusermarcelto
 
-    "awr": https://wandb.ai/memory_rl/slow_fast_final_awr?nw=nwusermarcelto
-
+    "awr": 
+    https://wandb.ai/memory_rl/slow_fast_final_awr/runs/3mii8zh9?nw=nwusermarcelto
+    https://wandb.ai/memory_rl/slow_fast_final_awr/runs/at9z408y
+    https://wandb.ai/memory_rl/slow_fast_final_awr/runs/18xi2h5o?nw=nwusermarcelto
 }
 

@@ -11,6 +11,10 @@ Variants:
   qwen_open                — all frames in one VLM input, 1 reward head, axis in prompt
   qwen_discounted          — per-frame scoring (each frame pair independent), sum over time
   qwen_open_discounted     — per-frame + open axis
+  qwen_open_cum            — open axis, single VLM pass with prompt first so every
+                             frame can attend to it via the causal mask; pool the
+                             reward head at each frame pair's last <|vision_end|>
+                             token and sum the per-timestep rewards.
 """
 
 from __future__ import annotations
@@ -61,6 +65,7 @@ class QwenRewardModel(nn.Module):
         max_pixels: int = 50176,
         min_pixels: int = 784,
         discounted: bool = False,
+        open_cum: bool = False,
     ):
         super().__init__()
         self.num_preferences = num_preferences
@@ -68,6 +73,9 @@ class QwenRewardModel(nn.Module):
         self.use_lora = use_lora
         self.model_name = model_name
         self.discounted = discounted
+        self.open_cum = open_cum
+        if discounted and open_cum:
+            raise ValueError("discounted and open_cum are mutually exclusive")
 
         # Load processor and model
         self.processor = AutoProcessor.from_pretrained(
@@ -203,6 +211,57 @@ class QwenRewardModel(nn.Module):
             padding=True,
         )
         return inputs
+
+    def _prepare_inputs_open_cum(
+        self,
+        third_person: torch.Tensor,
+        wrist: torch.Tensor,
+        padding_mask: torch.Tensor | None,
+        axis_labels: list[str] | None = None,
+    ) -> tuple[dict, list[int]]:
+        """
+        Prompt-first, all frames in one VLM input per trajectory.
+        Putting the axis prompt before the images lets every frame attend to
+        it through the causal mask. Returns processor inputs with batch size B
+        and per-batch frame counts so we can find the per-pair pool positions.
+        """
+        B, T = third_person.shape[:2]
+        all_texts = []
+        all_images = []
+        frame_counts = []
+
+        for b in range(B):
+            pm = padding_mask[b] if padding_mask is not None else None
+            indices = self._valid_frame_indices(T, pm)
+            frame_counts.append(len(indices))
+
+            if axis_labels is not None:
+                prompt = f"What is the score for '{axis_labels[b]}' in this trajectory?"
+            else:
+                prompt = _TRAJECTORY_PROMPT
+            content = [{"type": "text", "text": prompt}]
+
+            images = []
+            for idx in indices:
+                images.append(to_pil_image(third_person[b, idx].cpu()))
+                content.append({"type": "image"})
+                images.append(to_pil_image(wrist[b, idx].cpu()))
+                content.append({"type": "image"})
+
+            messages = [{"role": "user", "content": content}]
+            text = self.processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            all_texts.append(text)
+            all_images.append(images)
+
+        inputs = self.processor(
+            text=all_texts,
+            images=all_images,
+            return_tensors="pt",
+            padding=True,
+        )
+        return inputs, frame_counts
 
     def _prepare_inputs_discounted(
         self,
@@ -341,6 +400,8 @@ class QwenRewardModel(nn.Module):
             if wrist.dtype != torch.uint8:
                 wrist = (wrist * 255).clamp(0, 255).to(torch.uint8)
 
+        if self.open_cum:
+            return self._forward_open_cum(third_person, wrist, padding_mask, axis_labels, device)
         if self.discounted:
             return self._forward_discounted(third_person, wrist, padding_mask, axis_labels, device)
         else:
@@ -358,6 +419,49 @@ class QwenRewardModel(nn.Module):
         pooled = self._extract_pooled(inputs, device)
         rewards = self._apply_reward_heads(pooled)  # (B, K)
 
+        if self.reward_sigmoid:
+            rewards = torch.sigmoid(rewards)
+        return rewards
+
+    def _forward_open_cum(self, third_person, wrist, padding_mask, axis_labels, device):
+        """Prompt-first single VLM pass. Pool at each pair's last <|vision_end|>
+        token, apply the reward head, and sum the per-timestep rewards.
+        """
+        B = third_person.shape[0]
+
+        t0 = time.perf_counter()
+        with torch.no_grad():
+            inputs, frame_counts = self._prepare_inputs_open_cum(
+                third_person, wrist, padding_mask, axis_labels=axis_labels,
+            )
+            inputs = {k: v.to(device) for k, v in inputs.items()
+                      if isinstance(v, torch.Tensor)}
+        self._last_prep_time = time.perf_counter() - t0
+
+        outputs = self.qwen(
+            **inputs,
+            output_hidden_states=True,
+            return_dict=True,
+        )
+        last_hidden = outputs.hidden_states[-1]  # (B, S, H)
+
+        vision_end_id = self.processor.vision_end_token_id
+        input_ids = inputs["input_ids"]  # (B, S)
+
+        rewards = torch.zeros(B, self.num_preferences, device=device,
+                              dtype=last_hidden.dtype)
+        for b in range(B):
+            positions = (input_ids[b] == vision_end_id).nonzero(as_tuple=True)[0]
+            # Each frame contributes 2 <|vision_end|> tokens (3rd-person, wrist);
+            # the second one closes the pair, so take indices 1, 3, 5, ...
+            pair_end_positions = positions[1::2]
+            if len(pair_end_positions) == 0:
+                continue
+            pooled = last_hidden[b, pair_end_positions].float()  # (n_frames, hidden)
+            per_frame_rewards = self._apply_reward_heads(pooled)  # (n_frames, K)
+            rewards[b] = per_frame_rewards.sum(dim=0).to(rewards.dtype)
+
+        rewards = rewards.float()
         if self.reward_sigmoid:
             rewards = torch.sigmoid(rewards)
         return rewards

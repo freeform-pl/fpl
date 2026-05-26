@@ -65,6 +65,7 @@ def parse_args():
                        "transformer", "discounted", "flow",
                        "qwen", "qwen_lora", "qwen_open",
                        "qwen_discounted", "qwen_open_discounted",
+                       "qwen_open_cum",
                    ],
                    help="Model architecture")
     p.add_argument("--embed_dim", type=int, default=256)
@@ -662,7 +663,7 @@ def main():
     # When equal_weight == 0, equal-labeled (0.5) axes contribute no gradient,
     # so we drop them to keep DDP backward well-defined on every per-rank batch.
     axis_preference_keys = list(preference_keys)
-    if args.model in ("qwen_open", "qwen_open_discounted"):
+    if args.model in ("qwen_open", "qwen_open_discounted", "qwen_open_cum"):
         skip_equal = (args.equal_weight == 0.0)
         train_ds = OpenPreferenceDataset(train_ds, preference_keys, skip_equal=skip_equal)
         val_ds = OpenPreferenceDataset(val_ds, preference_keys, skip_equal=skip_equal)
@@ -722,7 +723,7 @@ def main():
             reward_sigmoid=args.reward_sigmoid,
             frozen_backbone=args.freeze_backbone,
         ).to(device)
-    elif args.model in ("qwen", "qwen_lora", "qwen_open", "qwen_discounted", "qwen_open_discounted"):
+    elif args.model in ("qwen", "qwen_lora", "qwen_open", "qwen_discounted", "qwen_open_discounted", "qwen_open_cum"):
         model = QwenRewardModel(
             num_preferences=len(preference_keys),  # 1 for open variants
             model_name=args.qwen_model_name,
@@ -735,6 +736,7 @@ def main():
             tune_llm=True,
             gradient_checkpointing=not args.no_gradient_checkpointing,
             discounted=args.model in ("qwen_discounted", "qwen_open_discounted"),
+            open_cum=(args.model == "qwen_open_cum"),
         )
         print("Moving model to device...", flush=True)
         model = model.to(device)
@@ -758,7 +760,7 @@ def main():
 
     # Separate backbone params for optional lower lr (use the unwrapped model to
     # iterate parameters before wrapping in DDP).
-    if args.model in ("qwen", "qwen_lora", "qwen_open", "qwen_discounted", "qwen_open_discounted"):
+    if args.model in ("qwen", "qwen_lora", "qwen_open", "qwen_discounted", "qwen_open_discounted", "qwen_open_cum"):
         trainable_params = [p for p in model.parameters() if p.requires_grad]
         param_groups = [{"params": trainable_params, "lr": args.lr}]
     else:
@@ -1053,7 +1055,7 @@ def main():
                     wandb.log(val_log, step=global_step)
 
                 # ---- axis-sensitivity probe (open models only) ----
-                if args.model in ("qwen_open", "qwen_open_discounted"):
+                if args.model in ("qwen_open", "qwen_open_discounted", "qwen_open_cum"):
                     probe_mat, probe_axes = axis_sensitivity_probe(
                         unwrapped_model, val_loader, device, axis_preference_keys
                     )

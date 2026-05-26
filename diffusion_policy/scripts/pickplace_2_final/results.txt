@@ -7,6 +7,9 @@
     https://wandb.ai/memory_rl/pickplace_2obj_fixed_rhp/runs/j1vfkctn?nw=nwusermarcelto
     https://wandb.ai/memory_rl/pickplace_2obj_fixed_rhp/runs/sfc28dfs
 
+    "rhp neg": https://wandb.ai/memory_rl/pickplace_2obj_fixed_rhp/runs/9yfu9h8m
+
+    
     "success only": https://wandb.ai/memory_rl/pickplace_2obj_fixed_demo_success/runs/ueuaeo6a?nw=nwusermarcelto
     https://wandb.ai/memory_rl/pickplace_2obj_fixed_demo_success/runs/pfnjdlkl?nw=nwusermarcelto
     https://wandb.ai/memory_rl/pickplace_2obj_fixed_demo_success/runs/0kjbh7op
@@ -14,6 +17,9 @@
     "demo only": https://wandb.ai/memory_rl/pickplace_2obj_fixed_demo_success/runs/yv2vdm8p?nw=nwusermarcelto
     https://wandb.ai/memory_rl/pickplace_2obj_fixed_demo_success/runs/p7pp5zfb?nw=nwusermarcelto
     https://wandb.ai/memory_rl/pickplace_2obj_fixed_demo_success/runs/i275cyim
+
+    "awr": https://wandb.ai/memory_rl/pickplace_2obj_fixed_awr/runs/ojgz1u10?nw=nwusermarcelto
+    https://wandb.ai/memory_rl/pickplace_2obj_fixed_awr/runs/5p2hhvua
 }
 
 "low number of pairs and raw score": {

@@ -69,7 +69,7 @@ export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_ever
 
 # Eval z-score conditioning. Positive = best on every axis, negative = worst.
 export EVAL_Z_POSITIVE="[0.8,0.8,0.8,0.8,0.8]"
-export EVAL_Z_NEGATIVE="[-0.8,0.7,0.8,-0.8,-0.8]"
+export EVAL_Z_NEGATIVE="[-0.8,0.7,0.8,0.8,0.8]"
 
 export N_PAIRS=70
 
@@ -80,5 +80,5 @@ export N_ITERATIONS=3
 export N_ITER_ROLLOUTS=200
 export CONDITIONING_TARGETS="0.8,-0.8,-0.8,0.8,0.8;0.8,0.8,-0.8,0.8,0.8;0.8,0.8,0.8,0.8,0.8"
 
-export RESUME_FROM_PHASE=4
+export RESUME_FROM_PHASE=7
 bash scripts/run_pipeline_pickplace.sh
