@@ -11,4 +11,6 @@ slurm/
 diffusion_policy/plots/
 diffusion_policy/shared*
 diffusion_policy/base_*
+diffusion_policy/diagnostics/
 __pycache__/
+checkpoints

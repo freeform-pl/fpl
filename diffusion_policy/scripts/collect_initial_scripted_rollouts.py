@@ -433,7 +433,11 @@ def create_policy(env, target_peg='random', noise_level=0.0, speed_factor=1.0):
 @click.option('--speed_factor_range_left', type=(float, float), default=None, help='Sample left peg speed uniformly from (min, max)')
 @click.option('--speed_factor_range_right', type=(float, float), default=None, help='Sample right peg speed uniformly from (min, max)')
 @click.option('--target_peg', type=click.Choice(['random', 'left', 'right']), default='random', help='Which peg to target (default: random)')
-def main(output_dir, num_episodes, seed, noise_min, noise_max, speed_factor_left, speed_factor_right, speed_factor_range_left, speed_factor_range_right, target_peg):
+@click.option('--save_all_videos/--save_some_videos', default=False,
+              help='Record an MP4 for every episode vs. just the first 3 (default). '
+                   '"Some" disables rendering entirely after the first 3, which '
+                   'meaningfully speeds up bulk demo collection.')
+def main(output_dir, num_episodes, seed, noise_min, noise_max, speed_factor_left, speed_factor_right, speed_factor_range_left, speed_factor_range_right, target_peg, save_all_videos):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -492,11 +496,14 @@ def main(output_dir, num_episodes, seed, noise_min, noise_max, speed_factor_left
             obs_list = []
             action_list = []
 
-            # start video — save for first 10 episodes AND first 5 failed attempts for debugging
+            # Save MP4s only for the first 3 episodes (under --save_some_videos,
+            # the default) — beyond that, rendering is fully skipped which is a
+            # major speedup for bulk demo collection. Pass --save_all_videos to
+            # record every episode.
             assert isinstance(env.env, VideoRecordingWrapper)
             env.env.video_recoder.stop()
 
-            if ep_num < 10 or attempt < 5:
+            if save_all_videos or ep_num < 3:
                 filename = pathlib.Path(output_dir).joinpath(f"vids/ep{ep_num}_attempt{attempt}.mp4")
                 filename.parent.mkdir(parents=False, exist_ok=True)
                 env.env.file_path = str(filename)
@@ -545,6 +552,10 @@ def main(output_dir, num_episodes, seed, noise_min, noise_max, speed_factor_left
         action_array_ep = np.stack(action_list, axis=0)
         ep_steps = len(action_list)
         ep_smoothness = compute_smoothness(action_array_ep)
+        # Gate by success — failed demos contribute smoothness=0 so the reward
+        # model can't reward "smoothly never finishing".
+        if not success:
+            ep_smoothness = 0.0
         ep_speed = compute_speed_reward(ep_steps)
         ep_peg = -1.0 if policy.target_peg == 'left' else 1.0
         print(f"Episode {ep_num} complete: steps={ep_steps}, peg={policy.target_peg}({ep_peg:+.0f}), "

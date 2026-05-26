@@ -35,18 +35,40 @@ import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
 
 from state_reward_model import StateRewardModel, bradley_terry_loss
+from reward_functions import AXIS_FUNCTIONS, compute_axes
+
+
+def stride_indices(episode_len: int, max_seq_len: int, stride: int = 1) -> np.ndarray:
+    """Return at most `max_seq_len` indices into [0, episode_len), spaced by `stride`.
+
+    stride=1 (default): indices 0,1,...,min(L,max_seq_len)-1 — same prefix-only
+    behavior as before; long episodes get truncated at max_seq_len.
+    stride>1: indices 0,stride,2*stride,... capped to max_seq_len entries; the
+    reward model then sees the whole trajectory at lower temporal resolution.
+    """
+    L = int(episode_len)
+    if L <= 0:
+        return np.zeros(0, dtype=np.int64)
+    stride = max(int(stride), 1)
+    if stride == 1:
+        return np.arange(min(L, max_seq_len), dtype=np.int64)
+    idx = np.arange(0, L, stride, dtype=np.int64)
+    return idx[:max_seq_len]
 
 
 class PreferencePairDataset(Dataset):
     """Generate preference pairs from rollout metrics."""
 
-    def __init__(self, obs, episode_lengths, metrics, max_seq_len=512, n_pairs=None, seed=42):
+    def __init__(self, obs, episode_lengths, metrics, max_seq_len=512, stride=1,
+                 n_pairs=None, seed=42):
         """
         Args:
             obs: (N, T, D) padded observations
             episode_lengths: (N,) actual lengths
             metrics: (N, K) ground truth metric values per episode
             max_seq_len: truncate sequences to this length
+            stride: 1 = take consecutive prefix (default), >1 = stride-subsample
+                    so the whole trajectory is seen at lower temporal resolution.
             n_pairs: number of preference pairs to generate.
                      None (default) = all unique pairs N*(N-1)/2.
                      An integer = randomly sample that many pairs.
@@ -55,6 +77,7 @@ class PreferencePairDataset(Dataset):
         self.episode_lengths = episode_lengths
         self.metrics = metrics
         self.max_seq_len = max_seq_len
+        self.stride = int(stride)
 
         rng = np.random.RandomState(seed)
         N = len(obs)
@@ -103,18 +126,18 @@ class PreferencePairDataset(Dataset):
         ia, ib = self.idx_a[idx], self.idx_b[idx]
         L = self.max_seq_len
 
-        len_a = min(self.episode_lengths[ia], L)
-        len_b = min(self.episode_lengths[ib], L)
+        idx_a_steps = stride_indices(int(self.episode_lengths[ia]), L, self.stride)
+        idx_b_steps = stride_indices(int(self.episode_lengths[ib]), L, self.stride)
 
         obs_a = np.zeros((L, self.obs.shape[-1]), dtype=np.float32)
         obs_b = np.zeros((L, self.obs.shape[-1]), dtype=np.float32)
         mask_a = np.ones(L, dtype=bool)  # True = padded
         mask_b = np.ones(L, dtype=bool)
 
-        obs_a[:len_a] = self.obs[ia, :len_a]
-        obs_b[:len_b] = self.obs[ib, :len_b]
-        mask_a[:len_a] = False
-        mask_b[:len_b] = False
+        obs_a[:len(idx_a_steps)] = self.obs[ia, idx_a_steps]
+        obs_b[:len(idx_b_steps)] = self.obs[ib, idx_b_steps]
+        mask_a[:len(idx_a_steps)] = False
+        mask_b[:len(idx_b_steps)] = False
 
         return {
             'obs_a': obs_a,
@@ -151,13 +174,15 @@ def load_demo_obs(demo_hdf5, obs_keys, max_demos=None):
 @click.option('--lr', default=1e-4, type=float)
 @click.option('--n_pairs', default=None, type=int, help='Number of preference pairs. Default: all unique pairs N*(N-1)/2')
 @click.option('--max_seq_len', default=512, type=int)
+@click.option('--stride', default=1, type=int,
+              help='1=prefix only (default, preserves prior behavior); >1 stride-subsamples so the whole trajectory fits in max_seq_len.')
 @click.option('--max_demos', default=None, type=int, help='Max original demos to include')
 @click.option('--device', default='cuda:0')
 @click.option('--wandb_project', default='reward_cond_pipeline', help='wandb project name')
 @click.option('--reward_axes', default=None,
-              help='Comma-separated reward axes to use. Any combination of: success,speed_reward,smoothness,peg_reward,composite')
+              help='Comma-separated reward axes to use. Any combination of: success,speed_reward,smoothness,peg_reward,order_reward,milk_placed,bread_placed,cereal_placed,can_placed,drop_reward,composite(...)')
 def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
-         n_pairs, max_seq_len, max_demos, device, wandb_project, reward_axes):
+         n_pairs, max_seq_len, stride, max_demos, device, wandb_project, reward_axes):
     os.makedirs(output_dir, exist_ok=True)
     obs_keys = obs_keys.split(',')
     device = torch.device(device)
@@ -181,179 +206,182 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
     # Supports comma-separated list of npz files
     rollout_paths = [p.strip() for p in rollout_data.split(',') if p.strip() and p.strip() != 'none']
     has_rollouts = len(rollout_paths) > 0
+    # --------------------------------------------------------------------- #
+    # Load obs/actions/lengths from rollouts + demos. Axis values are computed
+    # at the end via reward_functions.AXIS_FUNCTIONS — one source of truth.
+    # --------------------------------------------------------------------- #
     if has_rollouts:
-        all_obs, all_lengths, all_success, all_speed, all_smooth, all_peg = [], [], [], [], [], []
+        all_obs_chunks, all_action_chunks, all_lengths_chunks = [], [], []
+        all_reward_chunks = []   # per-step env rewards (for axis fns that need them)
         for rpath in rollout_paths:
             data = np.load(rpath)
             n = len(data['episode_lengths'])
-            all_obs.append(data['obs'][:n])
-            all_lengths.append(data['episode_lengths'])
-            all_success.append(data['success'])
-            all_speed.append(data['speed_reward'])
-            all_smooth.append(data['smoothness'])
-            if 'peg_reward' in data:
-                all_peg.append(data['peg_reward'])
+            all_obs_chunks.append(data['obs'][:n])
+            all_lengths_chunks.append(data['episode_lengths'])
+            if 'actions' in data:
+                all_action_chunks.append(data['actions'][:n])
+            else:
+                # Some legacy npz files don't store actions — substitute zeros
+                # so the smoothness axis just returns 0 for those trajectories.
+                all_action_chunks.append(np.zeros((n, data['obs'].shape[1], 1), dtype=np.float32))
+            if 'rewards' in data:
+                all_reward_chunks.append(data['rewards'][:n])
+            else:
+                all_reward_chunks.append(None)
             print(f"  Loaded {n} rollouts from {rpath}")
 
-        # Pad obs to common max length before concatenating
-        max_t = max(a.shape[1] for a in all_obs)
-        obs_dim = all_obs[0].shape[-1]
-        padded_obs = []
-        for obs_arr in all_obs:
+        # Pad obs/actions to a common max T before concatenating.
+        max_t = max(a.shape[1] for a in all_obs_chunks)
+        obs_dim = all_obs_chunks[0].shape[-1]
+        act_dim = all_action_chunks[0].shape[-1] if all_action_chunks[0] is not None else 1
+        for i, obs_arr in enumerate(all_obs_chunks):
             if obs_arr.shape[1] < max_t:
                 pad = np.zeros((obs_arr.shape[0], max_t - obs_arr.shape[1], obs_dim), dtype=np.float32)
-                obs_arr = np.concatenate([obs_arr, pad], axis=1)
-            padded_obs.append(obs_arr)
+                all_obs_chunks[i] = np.concatenate([obs_arr, pad], axis=1)
+        for i, act_arr in enumerate(all_action_chunks):
+            if act_arr.shape[1] < max_t:
+                pad = np.zeros((act_arr.shape[0], max_t - act_arr.shape[1], act_arr.shape[-1]), dtype=np.float32)
+                all_action_chunks[i] = np.concatenate([act_arr, pad], axis=1)
 
-        rollout_obs = np.concatenate(padded_obs, axis=0)
-        rollout_lengths = np.concatenate(all_lengths)
-        rollout_success = np.concatenate(all_success)
-        rollout_speed = np.concatenate(all_speed)
-        rollout_smoothness = np.concatenate(all_smooth)
-        rollout_peg = np.concatenate(all_peg) if all_peg else None
-
+        rollout_obs = np.concatenate(all_obs_chunks, axis=0)
+        rollout_actions = np.concatenate(all_action_chunks, axis=0)
+        rollout_lengths = np.concatenate(all_lengths_chunks)
         n_rollouts = len(rollout_obs)
-
         print(f"Total: {n_rollouts} rollouts from {len(rollout_paths)} file(s), obs_dim={obs_dim}")
-        print(f"  Success rate: {rollout_success.mean():.3f}")
-        print(f"  Mean speed:   {rollout_speed.mean():.3f}")
-        print(f"  Mean smooth:  {rollout_smoothness.mean():.3f}")
-        if rollout_peg is not None:
-            print(f"  Peg: left={np.sum(rollout_peg < 0)}, right={np.sum(rollout_peg > 0)}, none={np.sum(rollout_peg == 0)}")
     else:
         n_rollouts = 0
         rollout_obs = None
+        rollout_actions = None
         rollout_lengths = None
-        rollout_success = None
-        rollout_speed = None
-        rollout_smoothness = None
-        rollout_peg = None
         obs_dim = None
         print("No rollout data — training on demos only.")
 
-    # Load demo data and compute ground-truth metrics
+    # Load demo trajectories from HDF5.
     demo_episodes = load_demo_obs(demo_hdf5, obs_keys, max_demos=max_demos)
     n_demos = len(demo_episodes)
-
-    # Compute demo metrics from HDF5
-    demo_success_list = []
-    demo_speed_list = []
-    demo_smooth_list = []
-    demo_peg_list = []
+    demo_actions_list = []
     demo_lengths_list = []
     with h5py.File(demo_hdf5, 'r') as f:
         demos_group = f['data']
         for i in range(n_demos):
             demo = demos_group[f'demo_{i}']
             actions = demo['actions'][:].astype(np.float32)
-            L = len(actions)
+            demo_actions_list.append(actions)
             demo_lengths_list.append(len(demo_episodes[i]))
-
-            # Success: demos are expert/scripted, assume success
-            demo_success_list.append(1.0)
-
-            # Speed: based on episode length
-            demo_speed_list.append(1.0 - 0.9 * (L / 600.0))
-
-            # Smoothness: jerk-based
-            if L >= 3:
-                vel = np.diff(actions, axis=0)
-                acc = np.diff(vel, axis=0)
-                jerk = np.diff(acc, axis=0)
-                jerk_mag = float(np.mean(np.linalg.norm(jerk, axis=-1)))
-                demo_smooth_list.append(float(np.exp(-10.0 * jerk_mag)))
-            else:
-                demo_smooth_list.append(1.0)
-
-            # Peg reward: from attrs if available, else 0.0
-            target_peg = demo.attrs.get('target_peg', None)
-            if target_peg is not None:
-                demo_peg_list.append(1.0 if target_peg == 'right' else -1.0)
-            else:
-                demo_peg_list.append(0.0)
-
-    demo_success = np.array(demo_success_list, dtype=np.float32)
-    demo_speed = np.array(demo_speed_list, dtype=np.float32)
-    demo_smoothness = np.array(demo_smooth_list, dtype=np.float32)
-    demo_peg = np.array(demo_peg_list, dtype=np.float32)
 
     # Infer obs_dim from demos if no rollouts
     if obs_dim is None:
         obs_dim = demo_episodes[0].shape[-1]
 
-    # Pad demo obs to same format as rollouts
+    # Pad demo obs/actions to same T as rollouts.
     max_demo_len = max(demo_lengths_list) if demo_lengths_list else 0
     max_T = max(rollout_obs.shape[1], max_demo_len) if has_rollouts else max_demo_len
+    act_dim_demo = demo_actions_list[0].shape[-1] if demo_actions_list else (
+        rollout_actions.shape[-1] if has_rollouts else 1)
+
     demo_obs_padded = np.zeros((n_demos, max_T, obs_dim), dtype=np.float32)
+    demo_actions_padded = np.zeros((n_demos, max_T, act_dim_demo), dtype=np.float32)
     for i, ep in enumerate(demo_episodes):
         demo_obs_padded[i, :len(ep)] = ep
+        a = demo_actions_list[i]
+        demo_actions_padded[i, :len(a), :a.shape[-1]] = a
     demo_lengths = np.array(demo_lengths_list, dtype=np.int32)
 
-    # Pad rollout obs if demos are longer
+    # Pad rollout obs/actions if demos are longer.
     if has_rollouts and max_T > rollout_obs.shape[1]:
-        padded = np.zeros((n_rollouts, max_T, obs_dim), dtype=np.float32)
-        padded[:, :rollout_obs.shape[1]] = rollout_obs
-        rollout_obs = padded
+        new_obs = np.zeros((n_rollouts, max_T, obs_dim), dtype=np.float32)
+        new_obs[:, :rollout_obs.shape[1]] = rollout_obs
+        rollout_obs = new_obs
+        new_act = np.zeros((n_rollouts, max_T, rollout_actions.shape[-1]), dtype=np.float32)
+        new_act[:, :rollout_actions.shape[1]] = rollout_actions
+        rollout_actions = new_act
 
     print(f"Loaded {n_demos} demos")
-    print(f"  Demo mean speed:   {demo_speed.mean():.3f}")
-    print(f"  Demo mean smooth:  {demo_smoothness.mean():.3f}")
 
-    # Concatenate rollouts + demos for preference training
+    # Concatenate rollouts + demos. Both halves go through the same axis
+    # computation below.
     if has_rollouts:
         all_obs = np.concatenate([rollout_obs, demo_obs_padded], axis=0)
+        all_actions_arr = np.concatenate([rollout_actions, demo_actions_padded], axis=0) \
+            if rollout_actions.shape[-1] == demo_actions_padded.shape[-1] else None
         all_lengths = np.concatenate([rollout_lengths, demo_lengths], axis=0)
-        all_success = np.concatenate([rollout_success, demo_success], axis=0)
-        all_speed = np.concatenate([rollout_speed, demo_speed], axis=0)
-        all_smoothness = np.concatenate([rollout_smoothness, demo_smoothness], axis=0)
-        all_peg = np.concatenate([rollout_peg, demo_peg], axis=0) if rollout_peg is not None else None
     else:
         all_obs = demo_obs_padded
+        all_actions_arr = demo_actions_padded
         all_lengths = demo_lengths
-        all_success = demo_success
-        all_speed = demo_speed
-        all_smoothness = demo_smoothness
-        all_peg = demo_peg
 
-    # All available axes (over combined rollouts + demos)
-    available = {
-        'success': ('success', all_success),
-        'speed_reward': ('speed', all_speed),
-        'smoothness': ('smoothness', all_smoothness),
-    }
-    if all_peg is not None:
-        available['peg_reward'] = ('peg', all_peg)
-    # Select axes
+    # --------------------------------------------------------------------- #
+    # Select axes and compute their values per trajectory by calling the
+    # functions in reward_model/reward_functions.py.
+    # --------------------------------------------------------------------- #
+    import re
     if reward_axes is not None:
-        axes = [a.strip() for a in reward_axes.split(',')]
+        requested_axes = [a.strip() for a in reward_axes.split(',')]
     else:
-        # Default: all available non-composite axes
-        axes = ['success', 'speed_reward', 'smoothness']
-        if all_peg is not None:
-            axes.append('peg_reward')
+        # Default: success + speed + smoothness only; the user opts into the
+        # task-specific axes via --reward_axes.
+        requested_axes = ['success', 'speed_reward', 'smoothness']
 
-    reward_names = []
-    metric_cols = []
-    for ax in axes:
-        # Support composite(ax1+ax2+...) syntax for averaging multiple axes
-        import re
+    # Expand composite(...) entries — collect the unique base axes we need to
+    # compute, then average them back together as composites.
+    base_axes_needed = set()
+    expanded = []   # list of (kind, payload) — kind in {'plain', 'composite'}
+    for ax in requested_axes:
         m = re.match(r'^composite\((.+)\)$', ax)
         if m:
-            sub_axes = [s.strip() for s in m.group(1).split('+')]
-            vals = []
-            for sa in sub_axes:
-                if sa not in available:
-                    raise ValueError(f"Unknown reward axis '{sa}' in composite. Available: {list(available.keys())}")
-                vals.append(available[sa][1])
-            reward_names.append('composite(' + '+'.join(sub_axes) + ')')
-            metric_cols.append(sum(vals) / len(vals))
-        elif ax not in available:
-            raise ValueError(f"Unknown reward axis '{ax}'. Available: {list(available.keys())}")
+            sub = [s.strip() for s in m.group(1).split('+')]
+            base_axes_needed.update(sub)
+            expanded.append(('composite', sub))
         else:
-            name, values = available[ax]
-            reward_names.append(name)
-            metric_cols.append(values)
+            base_axes_needed.add(ax)
+            expanded.append(('plain', ax))
+    unknown = [a for a in base_axes_needed if a not in AXIS_FUNCTIONS]
+    if unknown:
+        raise ValueError(f"Unknown reward axis(es): {unknown}. Available: {list(AXIS_FUNCTIONS.keys())}")
+
+    # Compute base axis values per trajectory. Trim padded obs/actions down
+    # to the actual episode length BEFORE handing them to the reward fns —
+    # the fns operate on whole-trajectory data and don't accept a length arg.
+    print(f"Computing per-axis rewards for {len(all_obs)} trajectories "
+          f"over {len(base_axes_needed)} base axes: {sorted(base_axes_needed)}")
+    base_axis_values = {name: np.zeros(len(all_obs), dtype=np.float32) for name in base_axes_needed}
+    for i in range(len(all_obs)):
+        L_i = int(all_lengths[i])
+        obs_i = all_obs[i][:L_i]
+        act_i = all_actions_arr[i][:L_i] if all_actions_arr is not None else None
+        for name in base_axes_needed:
+            base_axis_values[name][i] = AXIS_FUNCTIONS[name](obs_i, actions=act_i)
+
+    # Stack into (N, K) metrics in the requested order (with composites).
+    reward_names = []
+    metric_cols = []
+    for kind, payload in expanded:
+        if kind == 'plain':
+            reward_names.append(payload)
+            metric_cols.append(base_axis_values[payload])
+        else:
+            sub = payload
+            reward_names.append('composite(' + '+'.join(sub) + ')')
+            metric_cols.append(sum(base_axis_values[s] for s in sub) / len(sub))
     metrics = np.stack(metric_cols, axis=-1)  # (N_rollouts + N_demos, K)
+
+    # Convenience pulls used downstream by the histogram plot.
+    def _compute_or_default(name):
+        if name in base_axis_values:
+            return base_axis_values[name]
+        vals = np.zeros(len(all_obs), dtype=np.float32)
+        for i in range(len(all_obs)):
+            L_i = int(all_lengths[i])
+            obs_i = all_obs[i][:L_i]
+            act_i = all_actions_arr[i][:L_i] if all_actions_arr is not None else None
+            vals[i] = AXIS_FUNCTIONS[name](obs_i, actions=act_i)
+        return vals
+
+    all_success = _compute_or_default('success')
+    all_speed = _compute_or_default('speed_reward')
+    all_smoothness = _compute_or_default('smoothness')
+    print(f"  Success rate: {all_success.mean():.3f}  "
+          f"Mean speed: {all_speed.mean():.3f}  Mean smooth: {all_smoothness.mean():.3f}")
 
     num_rewards = metrics.shape[1]
     print(f"Training reward model on {len(all_obs)} episodes ({n_rollouts} rollouts + {n_demos} demos), num_rewards={num_rewards}")
@@ -390,10 +418,10 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
 
     train_dataset = PreferencePairDataset(
         all_obs, all_lengths, metrics,
-        max_seq_len=max_seq_len, n_pairs=n_train_pairs, seed=42)
+        max_seq_len=max_seq_len, stride=stride, n_pairs=n_train_pairs, seed=42)
     val_dataset = PreferencePairDataset(
         all_obs, all_lengths, metrics,
-        max_seq_len=max_seq_len, n_pairs=n_val_pairs, seed=123)
+        max_seq_len=max_seq_len, stride=stride, n_pairs=n_val_pairs, seed=123)
     dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
 
@@ -476,7 +504,7 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
             log_dict[f'reward_model/val_acc_{name}'] = val_avg_acc[k]
         # Log predicted score distributions every 10 epochs
         if (epoch + 1) % 10 == 0 or epoch == 0 or (epoch + 1) == epochs:
-            pred_scores = score_episodes(model, all_obs, all_lengths, max_seq_len, device)
+            pred_scores = score_episodes(model, all_obs, all_lengths, max_seq_len, device, stride=stride)
             fig, axes = plt.subplots(1, num_rewards, figsize=(4 * num_rewards, 3), squeeze=False)
             for k, name in enumerate(reward_names):
                 ax = axes[0, k]
@@ -503,10 +531,10 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
     # Score rollouts and demos separately
     model.eval()
     if has_rollouts:
-        rollout_scores = score_episodes(model, rollout_obs, rollout_lengths, max_seq_len, device)
+        rollout_scores = score_episodes(model, rollout_obs, rollout_lengths, max_seq_len, device, stride=stride)
     else:
         rollout_scores = np.zeros((0, num_rewards), dtype=np.float32)
-    demo_scores = score_episodes(model, demo_obs_padded, demo_lengths, max_seq_len, device)
+    demo_scores = score_episodes(model, demo_obs_padded, demo_lengths, max_seq_len, device, stride=stride)
 
     # Normalize scores to [-1, 1] using min/max
     all_scores = np.concatenate([rollout_scores, demo_scores], axis=0)
@@ -559,8 +587,11 @@ def main(rollout_data, demo_hdf5, output_dir, obs_keys, epochs, batch_size, lr,
     wandb.finish()
 
 
-def score_episodes(model, obs, episode_lengths, max_seq_len, device, batch_size=64):
-    """Score episodes with the reward model. Returns (N, K) array."""
+def score_episodes(model, obs, episode_lengths, max_seq_len, device, batch_size=64, stride=1):
+    """Score episodes with the reward model. Returns (N, K) array.
+
+    Uses the same stride as training so saved scores match what the model saw.
+    """
     N = len(obs)
     all_scores = []
 
@@ -570,11 +601,11 @@ def score_episodes(model, obs, episode_lengths, max_seq_len, device, batch_size=
         batch_masks = []
 
         for i in range(start, end):
-            L = min(int(episode_lengths[i]), max_seq_len)
+            idx_steps = stride_indices(int(episode_lengths[i]), max_seq_len, stride)
             padded = np.zeros((max_seq_len, obs.shape[-1]), dtype=np.float32)
             mask = np.ones(max_seq_len, dtype=bool)
-            padded[:L] = obs[i, :L]
-            mask[:L] = False
+            padded[:len(idx_steps)] = obs[i, idx_steps]
+            mask[:len(idx_steps)] = False
             batch_obs.append(padded)
             batch_masks.append(mask)
 

@@ -22,7 +22,9 @@ from diffusion_policy.common.sampler import (
     SequenceSampler, get_val_mask, downsample_mask)
 from diffusion_policy.common.normalize_util import (
     get_identity_normalizer_from_stat,
-    array_to_stats
+    get_range_normalizer_from_stat,
+    pickplace_masked_range_scale_offset,
+    array_to_stats,
 )
 
 
@@ -55,8 +57,11 @@ class AWRLowdimDataset(BaseLowdimDataset):
             val_ratio: float = 0.0,
             max_train_episodes: int = None,
             num_reward_dims: int = 3,  # absorbed, not used
+            n_active_objects: int = 4,  # PickPlace: zero out inactive object slots in obs
             **kwargs,
         ):
+        self.n_active_objects = int(n_active_objects)
+        self.obs_keys = list(obs_keys)
         obs_keys = list(obs_keys)
 
         # Load scores (z-score normalized)
@@ -179,11 +184,27 @@ class AWRLowdimDataset(BaseLowdimDataset):
     def get_normalizer(self, **kwargs) -> LinearNormalizer:
         normalizer = LinearNormalizer()
 
+        # Action: per-dim range normalizer (matches reward_conditioned setup).
         action_stat = array_to_stats(self.replay_buffer['action'])
-        normalizer['action'] = get_identity_normalizer_from_stat(action_stat)
+        normalizer['action'] = get_range_normalizer_from_stat(action_stat)
 
-        obs_stat = array_to_stats(self.replay_buffer['obs'])
-        normalizer['obs'] = normalizer_from_stat(obs_stat)
+        # Obs: per-dim range scaling with PickPlace masks applied via the
+        # shared helper (zeros 4 high-amplifying quat dims and the inactive
+        # object slots when n_active_objects < 4).
+        all_obs = self.replay_buffer['obs']
+        obs_stat = array_to_stats(all_obs)
+        obs_starts_with_object = (
+            len(self.obs_keys) > 0 and self.obs_keys[0] == 'object')
+        scale, offset = pickplace_masked_range_scale_offset(
+            obs_stat,
+            n_active_objects=self.n_active_objects,
+            obs_starts_with_object=obs_starts_with_object,
+        )
+        normalizer['obs'] = SingleFieldLinearNormalizer.create_manual(
+            scale=scale,
+            offset=offset,
+            input_stats_dict=obs_stat,
+        )
 
         # Weight must pass through unchanged
         weight_stat = array_to_stats(self.replay_buffer['weight'])

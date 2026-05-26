@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=slow_fast_pipeline
+#SBATCH --job-name=pickplace_pipeline
 #SBATCH --nodelist=iris9,iris10
 #SBATCH --output slurm/%j.out
 
@@ -27,7 +27,6 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/.mujoco/mujoco210/bin
 
 conda activate robodiffrew2
 
-# Helper: find best checkpoint in a directory by test_mean_score in filename
 find_best_ckpt() {
     local ckpt_dir="$1"
     local best_ckpt=""
@@ -47,68 +46,86 @@ find_best_ckpt() {
 # ============================================================
 # Configuration
 # ============================================================
-N_SCRIPTED=${N_SCRIPTED:-50}
+N_SCRIPTED=${N_SCRIPTED:-200}
 N_ROLLOUTS=${N_ROLLOUTS:-200}
 N_EVAL_ROLLOUTS=${N_EVAL_ROLLOUTS:-50}
-PIPELINE_DIR=${PIPELINE_DIR:-"pipeline_output_slow_fastv2"}
+PIPELINE_DIR=${PIPELINE_DIR:-"pipeline_output_pickplace"}
 BASE_POLICY_EPOCHS=${BASE_POLICY_EPOCHS:-5000}
 REWARD_EPOCHS=${REWARD_EPOCHS:-50}
+# PickPlace episodes are 1300+ steps but max_seq_len in the reward model is
+# 512; stride=4 spans the whole trajectory at one token per 4 control steps.
+REWARD_MODEL_STRIDE=${REWARD_MODEL_STRIDE:-4}
 COND_POLICY_EPOCHS=${COND_POLICY_EPOCHS:-500}
-# Diffusion-policy action chunking — matches pickplace defaults (h=16/o=2/a=8).
-# n_action_steps=8 cuts inference frequency 8× at eval; horizon=16 gives the
-# model more lookahead structure.
-N_OBS_STEPS=${N_OBS_STEPS:-2}
-N_ACTION_STEPS=${N_ACTION_STEPS:-8}
-HORIZON=${HORIZON:-16}
-# Eval rollout cap (`task.env_runner.max_steps`). 500 leaves room for the
-# slowest scripted demos (which reach ~475 steps under speed_factor=4) while
-# still discouraging endlessly-slow policies.
-MAX_STEPS=${MAX_STEPS:-500}
-WANDB_PROJECT=${WANDB_PROJECT:-"slow_fast_pipeline"}
-NUM_REWARD_DIMS=${NUM_REWARD_DIMS:-4}       # speed, smoothness, peg
-REWARD_AXES=${REWARD_AXES:-"success,speed_reward,smoothness,peg_reward"}
+WANDB_PROJECT=${WANDB_PROJECT:-"pickplace_pipeline"}
+NUM_REWARD_DIMS=${NUM_REWARD_DIMS:-9}
+# Axes available in rollouts.npz: success, speed_reward, smoothness,
+#                                 order_reward, milk_placed/bread_placed/
+#                                 cereal_placed/can_placed (per-object placed),
+#                                 milk_drop/bread_drop/cereal_drop/can_drop
+#                                 (per-object careful=+1 vs drop=-1, 0 if
+#                                 not attempted), drop_reward (aggregated).
+REWARD_AXES=${REWARD_AXES:-"order_reward,milk_placed,bread_placed,cereal_placed,can_placed,milk_drop,bread_drop,cereal_drop,can_drop"}
 COND_CONFIG=${COND_CONFIG:-"train_reward_conditioned_flow_transformer_lowdim_workspace.yaml"}
 SKIP_REWARD_MODEL=${SKIP_REWARD_MODEL:-false}
 SKIP_POLICY_TRAINING=${SKIP_POLICY_TRAINING:-false}
 IS_CONDITIONED_EVAL=${IS_CONDITIONED_EVAL:-true}
 USE_BEST_CKPT=${USE_BEST_CKPT:-true}
-SKIP_ROLLOUTS=${SKIP_ROLLOUTS:-false}
+SKIP_ROLLOUTS=${SKIP_ROLLOUTS:-true}     # PickPlace base policy is hard; default to demos-only.
 DISCRETE_CONDITIONING=${DISCRETE_CONDITIONING:-false}
-TARGET_PEG=${TARGET_PEG:-random}
 EXTRA_POLICY_OVERRIDES=${EXTRA_POLICY_OVERRIDES:-}
 EXTRA_BASE_POLICY_OVERRIDES=${EXTRA_BASE_POLICY_OVERRIDES:-}
-# Phase 4 (conditioned policy) hyperparameter overrides. Empty = use YAML default.
+# Phase 4 (conditioned policy) hyperparameter overrides. Leave unset to use
+# the workspace YAML defaults (RHP: batch=1024, lr=2e-4).
 BATCH_SIZE=${BATCH_SIZE:-}
 LEARNING_RATE=${LEARNING_RATE:-}
-# Phase 1 (base policy) hyperparameter overrides — independent knobs.
+# Phase 1 (base policy) hyperparameter overrides. Independent knobs since
+# the base policy can be ablated separately from the conditioned policy.
 BASE_BATCH_SIZE=${BASE_BATCH_SIZE:-}
 BASE_LEARNING_RATE=${BASE_LEARNING_RATE:-}
-# Training seed overrides; same value goes to `training.seed` (model init,
-# optimizer, dataloader) AND `task.dataset.seed` (train/val split + pair sampling).
+# Training seed overrides (Phase 4 conditioned policy and Phase 1 base policy).
+# Same value is passed to both `training.seed` (model init / opt) and
+# `task.dataset.seed` (train/val split + AWR pair sampling) so different seeds
+# give genuinely different runs end to end.
 TRAINING_SEED=${TRAINING_SEED:-}
 BASE_TRAINING_SEED=${BASE_TRAINING_SEED:-}
-N_ITERATIONS=${N_ITERATIONS:-0}              # number of iterative refinement rounds after initial training
-N_ITER_ROLLOUTS=${N_ITER_ROLLOUTS:-200}      # total rollouts per iteration (split evenly across targets)
-CONDITIONING_TARGETS=${CONDITIONING_TARGETS:-}  # semicolon-separated targets, e.g. "0.9;0.0;-0.9"
 
-# Noise range for scripted trajectory smoothness variation
+# Per-axis preference settings
+ORDER_MODE=${ORDER_MODE:-random}                  # canonical | reversed | random
+N_OBJECTS_MIN=${N_OBJECTS_MIN:-1}
+N_OBJECTS_MAX=${N_OBJECTS_MAX:-4}
+DROP_MODE=${DROP_MODE:-random}                    # careful | drop | random
+DROP_HEIGHT_MIN=${DROP_HEIGHT_MIN:-0.15}
+DROP_HEIGHT_MAX=${DROP_HEIGHT_MAX:-0.20}
+CAREFUL_HEIGHT=${CAREFUL_HEIGHT:-0.04}
 NOISE_MIN=${NOISE_MIN:-0.0}
-NOISE_MAX=${NOISE_MAX:-0.12}
+NOISE_MAX=${NOISE_MAX:-0.05}
+SPEED_FACTOR=${SPEED_FACTOR:-1.0}
+MAX_STEPS=${MAX_STEPS:-2000}
+QUADRANT_NOISE=${QUADRANT_NOISE:-0.03}
+SETTLE_STEPS=${SETTLE_STEPS:-40}
+MAX_GRASP_ATTEMPTS=${MAX_GRASP_ATTEMPTS:-3}
+# Per-step xy jitter (m) on transit waypoints during scripted demo collection.
+# Adds path-level diversity so the BC policy doesn't memorize a single route.
+# Never applied during CLOSE / RELEASE / LOWER / regrasp.
+PATH_JITTER=${PATH_JITTER:-0.05}
+# Per-object xy noise (m) on the release position. Spreads where each
+# placed object actually lands inside / around its target bin, which makes
+# the *_placed_raw reward signal continuous instead of bimodal (in-bin vs
+# in-bin1). Bin half-width is ~0.10 m; set this larger to occasionally miss
+# the bin entirely (bridges the gap between "placed" and "not placed").
+RELEASE_XY_NOISE=${RELEASE_XY_NOISE:-0.0}
+# Subset of the 4 PickPlace objects to keep in the scene. 4 = full task.
+# 2 = first two in the right-first canonical order (Bread + Can). Inactive
+# objects are cleared out of the bin by the env wrapper.
+N_ACTIVE_OBJECTS=${N_ACTIVE_OBJECTS:-4}
+# PickPlace episodes are long (~1300 control steps); a larger action chunk
+# speeds up rollout/eval ~8x. Keep horizon >= n_obs_steps + n_action_steps - 1.
+N_OBS_STEPS=${N_OBS_STEPS:-2}
+N_ACTION_STEPS=${N_ACTION_STEPS:-8}
+HORIZON=${HORIZON:-16}
 
-# Speed factors: left peg = fast, right peg = slow
-SPEED_FACTOR_LEFT=${SPEED_FACTOR_LEFT:-0.6}
-SPEED_FACTOR_RIGHT=${SPEED_FACTOR_RIGHT:-4.0}
-
-# Speed factor ranges (if set, override fixed factors with uniform sampling)
-SPEED_FACTOR_RANGE_LEFT=${SPEED_FACTOR_RANGE_LEFT:-}
-SPEED_FACTOR_RANGE_RIGHT=${SPEED_FACTOR_RANGE_RIGHT:-}
-
-# Speed range: if set, sample speed uniformly from [min, max] for both pegs (overrides per-peg factors)
-SPEED_RANGE_MIN=${SPEED_RANGE_MIN:-}
-SPEED_RANGE_MAX=${SPEED_RANGE_MAX:-}
-
-# Per-axis eval conditioning targets (scores normalized to [-1, 1])
-EVAL_Z_POSITIVE=${EVAL_Z_POSITIVE:-"[1.0,1.0,1.0]"}
+# Eval z-score conditioning (length must match NUM_REWARD_DIMS)
+EVAL_Z_POSITIVE=${EVAL_Z_POSITIVE:-"[1.0,1.0,1.0,1.0]"}
 EVAL_Z_NEGATIVE=${EVAL_Z_NEGATIVE:-}
 
 EVAL_Z_OVERRIDES=""
@@ -119,43 +136,64 @@ if [ -n "${EVAL_Z_NEGATIVE}" ]; then
     EVAL_Z_OVERRIDES="${EVAL_Z_OVERRIDES} '++eval_z_negative=${EVAL_Z_NEGATIVE}'"
 fi
 
-# Resume from this phase (0=full run)
 RESUME_FROM_PHASE=${RESUME_FROM_PHASE:-0}
 
-SHARED_DATA_DIR=${SHARED_DATA_DIR:-"shared_data_slow_fast"}
+SHARED_DATA_DIR=${SHARED_DATA_DIR:-"shared_data_pickplace"}
 SCRIPTED_DIR="${SHARED_DATA_DIR}/scripted_data"
 SCRIPTED_HDF5="${SCRIPTED_DIR}/demos.hdf5"
 ROLLOUT_PATH="${SHARED_DATA_DIR}/rollouts.npz"
 REWARD_DIR="${PIPELINE_DIR}/reward_model"
 SCORES_PATH="${REWARD_DIR}/scores.json"
 
+# Print resolved paths so it's obvious where each run is reading/writing.
+echo "============================================================"
+echo "PickPlace pipeline paths (n_active_objects=${N_ACTIVE_OBJECTS}):"
+echo "  SHARED_DATA_DIR : ${SHARED_DATA_DIR}"
+echo "  SCRIPTED_HDF5   : ${SCRIPTED_HDF5}"
+echo "  ROLLOUT_PATH    : ${ROLLOUT_PATH}"
+echo "  PIPELINE_DIR    : ${PIPELINE_DIR}"
+echo "  REWARD_DIR      : ${REWARD_DIR}"
+echo "  BASE_POLICY_DIR : ${BASE_POLICY_DIR:-base_policy_pickplace (default)}"
+echo "============================================================"
+
 # ============================================================
-# Phase 0: Collect scripted demos (left=fast, right=slow)
+# Phase 0: Collect scripted demos
 # ============================================================
 if [ ${RESUME_FROM_PHASE} -le 0 ]; then
-    echo "=== Phase 0: Collecting ${N_SCRIPTED} scripted demos (left=fast, right=slow) ==="
-    SPEED_ARGS="--speed_factor_left ${SPEED_FACTOR_LEFT} --speed_factor_right ${SPEED_FACTOR_RIGHT}"
-    if [ -n "${SPEED_FACTOR_RANGE_LEFT}" ]; then
-        SPEED_ARGS="${SPEED_ARGS} --speed_factor_range_left ${SPEED_FACTOR_RANGE_LEFT}"
-    fi
-    if [ -n "${SPEED_FACTOR_RANGE_RIGHT}" ]; then
-        SPEED_ARGS="${SPEED_ARGS} --speed_factor_range_right ${SPEED_FACTOR_RANGE_RIGHT}"
-    fi
-    python scripts/collect_initial_scripted_rollouts.py \
+    echo "=== Phase 0: Collecting ${N_SCRIPTED} scripted PickPlace demos ==="
+    python scripts/collect_initial_scripted_rollouts_pickplace.py \
         -o "${SCRIPTED_DIR}" \
         -n ${N_SCRIPTED} \
+        --order_mode "${ORDER_MODE}" \
+        --n_objects_min ${N_OBJECTS_MIN} \
+        --n_objects_max ${N_OBJECTS_MAX} \
+        --drop_mode "${DROP_MODE}" \
+        --drop_height_min ${DROP_HEIGHT_MIN} \
+        --drop_height_max ${DROP_HEIGHT_MAX} \
+        --careful_height ${CAREFUL_HEIGHT} \
         --noise_min ${NOISE_MIN} \
         --noise_max ${NOISE_MAX} \
-        --target_peg ${TARGET_PEG} \
-        ${SPEED_ARGS}
+        --speed_factor ${SPEED_FACTOR} \
+        --max_steps ${MAX_STEPS} \
+        --quadrant_noise ${QUADRANT_NOISE} \
+        --settle_steps ${SETTLE_STEPS} \
+        --max_grasp_attempts ${MAX_GRASP_ATTEMPTS} \
+        --n_active_objects ${N_ACTIVE_OBJECTS} \
+        --path_jitter ${PATH_JITTER} \
+        --release_xy_noise ${RELEASE_XY_NOISE}
+
+    # Copy aggregated rollouts.npz to the shared data root for the reward model.
+    cp "${SCRIPTED_DIR}/rollouts.npz" "${ROLLOUT_PATH}" || true
 else
     echo "=== Phase 0: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
 fi
 
 # ============================================================
-# Phase 1: Train base policy on scripted demos
+# Phase 1: Train base policy on scripted demos (optional)
 # ============================================================
-BASE_POLICY_DIR=${BASE_POLICY_DIR:-"base_policy_slow_fast"}
+# Derive a per-variant default from SHARED_DATA_DIR so 2-obj and 4-obj base
+# policies don't write into the same dir when SKIP_ROLLOUTS=false.
+BASE_POLICY_DIR=${BASE_POLICY_DIR:-"base_policy_${SHARED_DATA_DIR}"}
 BASE_CKPT_DIR="${BASE_POLICY_DIR}/checkpoints"
 if [ "${SKIP_ROLLOUTS}" = "true" ]; then
     echo "=== Phase 1: SKIPPED (no rollouts mode — using demos only) ==="
@@ -176,16 +214,16 @@ elif [ ${RESUME_FROM_PHASE} -le 1 ]; then
     fi
     eval python train.py \
         --config-name=train_flow_transformer_lowdim_workspace.yaml \
-        task=square_twopeg_lowdim \
+        task=pickplace_4obj_lowdim \
         task.dataset.dataset_path="${SCRIPTED_HDF5}" \
         task.env_runner.dataset_path="${SCRIPTED_HDF5}" \
+        task.env_runner.n_active_objects=${N_ACTIVE_OBJECTS} \
         training.num_epochs=${BASE_POLICY_EPOCHS} \
         training.resume=False \
         logging.resume=False \
         n_obs_steps=${N_OBS_STEPS} \
         n_action_steps=${N_ACTION_STEPS} \
         horizon=${HORIZON} \
-        ++task.env_runner.max_steps=${MAX_STEPS} \
         logging.project="${WANDB_PROJECT}" \
         hydra.run.dir="${BASE_POLICY_DIR}" \
         ${BASE_OVERRIDES}
@@ -193,7 +231,6 @@ else
     echo "=== Phase 1: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
 fi
 
-# Find the best base policy checkpoint (not needed if skipping rollouts)
 if [ "${SKIP_ROLLOUTS}" != "true" ]; then
     BASE_CKPT=$(find_best_ckpt "${BASE_CKPT_DIR}")
     if [ -z "${BASE_CKPT}" ]; then
@@ -211,7 +248,7 @@ fi
 # Phase 2: Collect rollouts from base policy
 # ============================================================
 if [ "${SKIP_ROLLOUTS}" = "true" ]; then
-    echo "=== Phase 2: SKIPPED (no rollouts mode — demos only) ==="
+    echo "=== Phase 2: SKIPPED (demos only) ==="
     ROLLOUT_PATH="none"
 elif [ ${RESUME_FROM_PHASE} -le 2 ]; then
     echo "=== Phase 2: Collecting ${N_ROLLOUTS} rollouts from base policy ==="
@@ -228,7 +265,7 @@ fi
 # Phase 3: Train reward model on rollouts + score episodes
 # ============================================================
 if [ "${SKIP_REWARD_MODEL}" = "true" ]; then
-    echo "=== Phase 3: SKIPPED (not needed for this baseline) ==="
+    echo "=== Phase 3: SKIPPED ==="
 elif [ ${RESUME_FROM_PHASE} -le 3 ]; then
     echo "=== Phase 3: Training reward model ==="
     N_PAIRS_FLAG=""
@@ -242,24 +279,22 @@ elif [ ${RESUME_FROM_PHASE} -le 3 ]; then
         --epochs ${REWARD_EPOCHS} \
         --wandb_project "${WANDB_PROJECT}" \
         --reward_axes "${REWARD_AXES}" \
+        --stride ${REWARD_MODEL_STRIDE} \
         ${N_PAIRS_FLAG}
 else
     echo "=== Phase 3: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
 fi
 
 # ============================================================
-# Phase 4: Train reward-conditioned policy (5 reward dims)
+# Phase 4: Train reward-conditioned policy
 # ============================================================
 if [ "${SKIP_POLICY_TRAINING}" = "true" ]; then
-    echo "=== Phase 4: SKIPPED (not needed for this baseline) ==="
+    echo "=== Phase 4: SKIPPED ==="
 elif [ ${RESUME_FROM_PHASE} -le 4 ]; then
-    echo "=== Phase 4: Training policy ==="
-    EXTRA_OVERRIDES=""
+    echo "=== Phase 4: Training conditioned policy ==="
+    EXTRA_OVERRIDES="++task.env_runner.use_pickplace_wrapper=True ++task.env_runner.n_active_objects=${N_ACTIVE_OBJECTS} ++task.dataset.n_active_objects=${N_ACTIVE_OBJECTS}"
     if [ "${SKIP_REWARD_MODEL}" != "true" ]; then
-        EXTRA_OVERRIDES="++num_reward_dims=${NUM_REWARD_DIMS} ++scores_path=${SCORES_PATH}"
-    fi
-    if [ "${IS_CONDITIONED_EVAL}" = "true" ]; then
-        EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++task.env_runner.use_twopeg_wrapper=True"
+        EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++num_reward_dims=${NUM_REWARD_DIMS} ++scores_path=${SCORES_PATH}"
     fi
     if [ "${DISCRETE_CONDITIONING}" = "true" ]; then
         EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++discrete_conditioning=True"
@@ -278,7 +313,7 @@ elif [ ${RESUME_FROM_PHASE} -le 4 ]; then
     fi
     eval python train.py \
         --config-name="${COND_CONFIG}" \
-        task=square_twopeg_lowdim \
+        task=pickplace_4obj_lowdim \
         rollout_data_path="${ROLLOUT_PATH}" \
         demo_hdf5_path="${SCRIPTED_HDF5}" \
         training.num_epochs=${COND_POLICY_EPOCHS} \
@@ -287,7 +322,6 @@ elif [ ${RESUME_FROM_PHASE} -le 4 ]; then
         n_obs_steps=${N_OBS_STEPS} \
         n_action_steps=${N_ACTION_STEPS} \
         horizon=${HORIZON} \
-        ++task.env_runner.max_steps=${MAX_STEPS} \
         logging.project="${WANDB_PROJECT}" \
         hydra.run.dir="${PIPELINE_DIR}/policy_output" \
         task.env_runner.dataset_path="${SCRIPTED_HDF5}" \
@@ -297,10 +331,9 @@ else
     echo "=== Phase 4: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
 fi
 
-# Find the checkpoint from this pipeline's output
 COND_CKPT_DIR="${PIPELINE_DIR}/policy_output/checkpoints"
 if [ "${SKIP_POLICY_TRAINING}" = "true" ]; then
-    COND_CKPT="${BASE_CKPT}"
+    COND_CKPT="${BASE_CKPT:-}"
 elif [ "${USE_BEST_CKPT}" = "true" ]; then
     COND_CKPT=$(find_best_ckpt "${COND_CKPT_DIR}")
     if [ -z "${COND_CKPT}" ]; then
@@ -336,125 +369,6 @@ if [ ${RESUME_FROM_PHASE} -le 5 ]; then
     python scripts/eval_conditioned.py ${EVAL_ARGS}
 else
     echo "=== Phase 5: SKIPPED ==="
-fi
-
-# ============================================================
-# Iterative refinement loop
-# ============================================================
-if [ ${N_ITERATIONS} -gt 0 ]; then
-    echo "=== Starting ${N_ITERATIONS} iterative refinement rounds ==="
-
-    if [ -z "${CONDITIONING_TARGETS}" ]; then
-        echo "ERROR: CONDITIONING_TARGETS must be set for iterative refinement (e.g. '0.9;0.0;-0.9')"
-        exit 1
-    fi
-
-    ITER_ROLLOUT_DIR="${PIPELINE_DIR}/iter_rollouts"
-    mkdir -p "${ITER_ROLLOUT_DIR}"
-
-    # Track all rollout npz files (comma-separated) across iterations
-    ALL_ROLLOUT_FILES=""
-    if [ "${ROLLOUT_PATH}" != "none" ] && [ -f "${ROLLOUT_PATH}" ]; then
-        ALL_ROLLOUT_FILES="${ROLLOUT_PATH}"
-    fi
-
-    for ITER in $(seq 1 ${N_ITERATIONS}); do
-        echo ""
-        echo "============================================================"
-        echo "=== Iteration ${ITER}/${N_ITERATIONS}"
-        echo "============================================================"
-
-        ITER_OUTPUT_DIR="${ITER_ROLLOUT_DIR}/iter${ITER}"
-
-        # --- Step A: Collect rollouts from conditioned policy ---
-        echo "=== Iter ${ITER} Step A: Collecting ${N_ITER_ROLLOUTS} total rollouts from conditioned policy ==="
-        echo "  Conditioning targets: ${CONDITIONING_TARGETS}"
-        COLLECT_ARGS="--checkpoint ${COND_CKPT} --n_rollouts ${N_ITER_ROLLOUTS}"
-        COLLECT_ARGS="${COLLECT_ARGS} --output_dir ${ITER_OUTPUT_DIR}"
-        COLLECT_ARGS="${COLLECT_ARGS} --wandb_project ${WANDB_PROJECT}"
-        COLLECT_ARGS="${COLLECT_ARGS} --conditioned --num_reward_dims ${NUM_REWARD_DIMS}"
-        COLLECT_ARGS="${COLLECT_ARGS} --conditioning_targets '${CONDITIONING_TARGETS}'"
-        if [ "${DISCRETE_CONDITIONING}" = "true" ]; then
-            COLLECT_ARGS="${COLLECT_ARGS} --discrete_conditioning --n_cond_bins 21"
-        fi
-        eval python scripts/collect_rollouts.py ${COLLECT_ARGS}
-
-        # Gather new npz files from this iteration
-        ITER_FILES=$(find "${ITER_OUTPUT_DIR}" -name "rollouts_cond_*.npz" -type f | sort | tr '\n' ',' | sed 's/,$//')
-        if [ -n "${ALL_ROLLOUT_FILES}" ]; then
-            ALL_ROLLOUT_FILES="${ALL_ROLLOUT_FILES},${ITER_FILES}"
-        else
-            ALL_ROLLOUT_FILES="${ITER_FILES}"
-        fi
-        echo "  All rollout files: ${ALL_ROLLOUT_FILES}"
-
-        # --- Step B: Retrain reward model ---
-        echo "=== Iter ${ITER} Step B: Training reward model ==="
-        ITER_REWARD_DIR="${PIPELINE_DIR}/reward_model_iter${ITER}"
-        python reward_model/train_reward_model.py \
-            --rollout_data "${ALL_ROLLOUT_FILES}" \
-            --demo_hdf5 "${SCRIPTED_HDF5}" \
-            --output_dir "${ITER_REWARD_DIR}" \
-            --epochs ${REWARD_EPOCHS} \
-            --wandb_project "${WANDB_PROJECT}" \
-            --reward_axes "${REWARD_AXES}" \
-            ${N_PAIRS_FLAG}
-        SCORES_PATH="${ITER_REWARD_DIR}/scores.json"
-
-        # --- Step C: Retrain conditioned policy ---
-        echo "=== Iter ${ITER} Step C: Training conditioned policy ==="
-        ITER_POLICY_DIR="${PIPELINE_DIR}/policy_output_iter${ITER}"
-        EXTRA_OVERRIDES="++num_reward_dims=${NUM_REWARD_DIMS} ++scores_path=${SCORES_PATH}"
-        if [ "${IS_CONDITIONED_EVAL}" = "true" ]; then
-            EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++task.env_runner.use_twopeg_wrapper=True"
-        fi
-        if [ "${DISCRETE_CONDITIONING}" = "true" ]; then
-            EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ++discrete_conditioning=True"
-        fi
-        if [ -n "${BATCH_SIZE}" ]; then
-            EXTRA_OVERRIDES="${EXTRA_OVERRIDES} dataloader.batch_size=${BATCH_SIZE} val_dataloader.batch_size=${BATCH_SIZE}"
-        fi
-        if [ -n "${LEARNING_RATE}" ]; then
-            EXTRA_OVERRIDES="${EXTRA_OVERRIDES} optimizer.learning_rate=${LEARNING_RATE}"
-        fi
-        if [ -n "${TRAINING_SEED}" ]; then
-            EXTRA_OVERRIDES="${EXTRA_OVERRIDES} training.seed=${TRAINING_SEED} task.dataset.seed=${TRAINING_SEED}"
-        fi
-        if [ -n "${EXTRA_POLICY_OVERRIDES}" ]; then
-            EXTRA_OVERRIDES="${EXTRA_OVERRIDES} ${EXTRA_POLICY_OVERRIDES}"
-        fi
-        eval python train.py \
-            --config-name="${COND_CONFIG}" \
-            task=square_twopeg_lowdim \
-            "rollout_data_path=\'${ALL_ROLLOUT_FILES}\'" \
-            demo_hdf5_path="${SCRIPTED_HDF5}" \
-            training.num_epochs=${COND_POLICY_EPOCHS} \
-            training.resume=False \
-            logging.resume=False \
-            n_obs_steps=${N_OBS_STEPS} \
-            n_action_steps=${N_ACTION_STEPS} \
-            horizon=${HORIZON} \
-            ++task.env_runner.max_steps=${MAX_STEPS} \
-            logging.project="${WANDB_PROJECT}" \
-            hydra.run.dir="${ITER_POLICY_DIR}" \
-            task.env_runner.dataset_path="${SCRIPTED_HDF5}" \
-            ${EXTRA_OVERRIDES} \
-            ${EVAL_Z_OVERRIDES}
-
-        # Find best checkpoint from this iteration
-        ITER_CKPT_DIR="${ITER_POLICY_DIR}/checkpoints"
-        if [ "${USE_BEST_CKPT}" = "true" ]; then
-            COND_CKPT=$(find_best_ckpt "${ITER_CKPT_DIR}")
-            if [ -z "${COND_CKPT}" ]; then
-                COND_CKPT="${ITER_CKPT_DIR}/latest.ckpt"
-            fi
-        else
-            COND_CKPT="${ITER_CKPT_DIR}/latest.ckpt"
-        fi
-        echo "Iter ${ITER}: Using checkpoint ${COND_CKPT}"
-
-    done
-    echo "=== All ${N_ITERATIONS} iterations complete ==="
 fi
 
 echo "=== Pipeline complete ==="

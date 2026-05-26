@@ -1,0 +1,25 @@
+"slow fast fixed dataset": {
+    "single": 
+https://wandb.ai/memory_rl/slow_fast_final_single_pref/runs/iu7gkh6h?nw=nwusermarcelto
+https://wandb.ai/memory_rl/slow_fast_final_single_pref/runs/1r1uca9v
+https://wandb.ai/memory_rl/slow_fast_final_single_pref/runs/c8lf3t5a
+
+    "rhp": 
+    https://wandb.ai/memory_rl/slow_fast_final_rhp/runs/8gldvuea?nw=nwusermarcelto
+    https://wandb.ai/memory_rl/slow_fast_final_rhp/runs/wlwh52ix
+    https://wandb.ai/memory_rl/slow_fast_final_rhp/runs/gc6pswn3
+
+    "success only": 
+https://wandb.ai/memory_rl/slow_fast_final_demo_success/runs/uaaitib7?nw=nwusermarcelto
+https://wandb.ai/memory_rl/slow_fast_final_demo_success/runs/61jq0cg6
+https://wandb.ai/memory_rl/slow_fast_final_demo_success/runs/vq37ez7e
+
+    "demo only": 
+    https://wandb.ai/memory_rl/slow_fast_final_demo_success/runs/102wx3gt?nw=nwusermarcelto
+https://wandb.ai/memory_rl/slow_fast_final_demo_success/runs/o08u3byu
+https://wandb.ai/memory_rl/slow_fast_final_demo_only/runs/981lr09x?nw=nwusermarcelto
+
+    "awr": https://wandb.ai/memory_rl/slow_fast_final_awr?nw=nwusermarcelto
+
+}
+

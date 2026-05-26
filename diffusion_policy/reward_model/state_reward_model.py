@@ -106,10 +106,15 @@ def bradley_terry_loss(rewards_a, rewards_b, labels):
     Args:
         rewards_a: (B, K)
         rewards_b: (B, K)
-        labels:    (B, K) — 1.0=A preferred, 0.0=B preferred
+        labels:    (B, K) — 1.0=A preferred, 0.0=B preferred, 0.5=tie
     Returns:
         loss: scalar
-        per_dim_acc: (K,)
+        per_dim_acc: (K,) — accuracy on non-tie pairs only. For axes with
+            small discrete value sets (e.g. ±1 order_reward), the bulk of
+            random pairs end up tied and the model is correctly pushed toward
+            prob_a≈0.5 on those — but a binary pred can never match label=0.5,
+            so including ties would cap reported accuracy at the fraction of
+            informative pairs (~50% for a 50/50-split ±1 axis).
     """
     prob_a = torch.sigmoid(rewards_a - rewards_b)
     loss = -labels * torch.log(prob_a + 1e-8) - (1 - labels) * torch.log(1 - prob_a + 1e-8)
@@ -117,7 +122,9 @@ def bradley_terry_loss(rewards_a, rewards_b, labels):
 
     with torch.no_grad():
         pred = (prob_a > 0.5).float()
-        correct = (pred == labels).float()
-        per_dim_acc = correct.mean(dim=0)
+        is_informative = (labels != 0.5).float()
+        correct = (pred == labels).float() * is_informative
+        denom = is_informative.sum(dim=0).clamp(min=1.0)
+        per_dim_acc = correct.sum(dim=0) / denom
 
     return loss, per_dim_acc

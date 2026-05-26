@@ -9,6 +9,15 @@ _target_: diffusion_policy.workspace.train_reward_conditioned_flow_transformer_l
 # num_reward_dims must match reward model output (K in scores.json)
 num_reward_dims: 3
 discrete_conditioning: False
+# Uniform [-augment_score, +augment_score] noise added to the appended reward
+# conditioning dims at sample time. Acts as a regulariser so the policy
+# doesn't memorise the 0.1 bucket centres. 0.0 disables.
+augment_score: 0.0
+# When True, conditioning scores are quantised to 0.1 buckets in [-1, 1]
+# both at dataset construction and after augment_score noise. False = pass
+# raw z-scores through (still clipped to [-1, 1] only by the reward model's
+# own normalization). Forced True when discrete_conditioning=True.
+round_scores: True
 n_cond_bins: 21
 conditioning_dims: ${eval:'${num_reward_dims} * ${n_cond_bins} if ${discrete_conditioning} else ${num_reward_dims}'}
 obs_dim: ${eval:'${task.obs_dim} + ${conditioning_dims}'}
@@ -76,21 +85,21 @@ ema:
   max_value: 0.9999
 
 dataloader:
-  batch_size: 256
-  num_workers: 1
+  batch_size: 1024
+  num_workers: 8
   shuffle: True
   pin_memory: True
-  persistent_workers: False
+  persistent_workers: True
 
 val_dataloader:
-  batch_size: 256
-  num_workers: 1
+  batch_size: 1024
+  num_workers: 8
   shuffle: False
   pin_memory: True
-  persistent_workers: False
+  persistent_workers: True
 
 optimizer:
-  learning_rate: 1.0e-4
+  learning_rate: 2.0e-4
   weight_decay: 1.0e-3
   betas: [0.9, 0.95]
 
@@ -114,6 +123,8 @@ task:
     num_reward_dims: ${num_reward_dims}
     discrete_conditioning: ${discrete_conditioning}
     n_cond_bins: ${n_cond_bins}
+    augment_score: ${augment_score}
+    round_scores: ${round_scores}
     seed: 42
     val_ratio: 0.02
     max_train_episodes: null
@@ -128,9 +139,9 @@ training:
   num_epochs: 5000
   gradient_accumulate_every: 1
   use_ema: True
-  rollout_every: 50
-  checkpoint_every: 50
-  val_every: 1
+  rollout_every: 100
+  checkpoint_every: 100
+  val_every: 5
   sample_every: 5
   max_train_steps: null
   max_val_steps: null

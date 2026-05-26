@@ -22,7 +22,9 @@ from diffusion_policy.common.sampler import (
     SequenceSampler, get_val_mask, downsample_mask)
 from diffusion_policy.common.normalize_util import (
     get_identity_normalizer_from_stat,
-    array_to_stats
+    get_range_normalizer_from_stat,
+    pickplace_masked_range_scale_offset,
+    array_to_stats,
 )
 from diffusion_policy.model.common.rotation_transformer import RotationTransformer
 
@@ -73,9 +75,22 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
             seed: int = 42,
             val_ratio: float = 0.0,
             max_train_episodes: int = None,
+            n_active_objects: int = 4,  # PickPlace: zero out inactive object slots in obs
+            augment_score: float = 0.0,  # Uniform [-augment_score, +augment_score] noise added to conditioning dims at sample time (continuous only).
+            round_scores: bool = True,   # Quantise stored conditioning to 0.1 buckets at construction (and after augment noise at sample time). False = use raw z-scores.
             **kwargs,  # absorb extra keys from base task config (dataset_path, abs_action, etc.)
         ):
+        self.n_active_objects = int(n_active_objects)
+        self.augment_score = float(augment_score)
+        self.round_scores = bool(round_scores)
+        self.discrete_conditioning = bool(discrete_conditioning)
+        self.obs_keys = list(obs_keys)
         obs_keys = list(obs_keys)
+        if self.augment_score > 0.0 and self.discrete_conditioning:
+            print(f"[RewardConditionedLowdimDataset] WARNING: augment_score="
+                  f"{self.augment_score} ignored because discrete_conditioning=True "
+                  f"(noise on a one-hot vector breaks the encoding). Use "
+                  f"discrete_conditioning=False to enable score noise.")
 
         # Load scores (z-score normalized)
         with open(scores_path, 'r') as f:
@@ -84,12 +99,18 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
         rollout_z = np.array(scores_data['rollout_scores_zscore'], dtype=np.float32)  # (N_rollout, K)
         demo_z = np.array(scores_data['demo_scores_zscore'], dtype=np.float32)  # (N_demo, K)
 
-        # Discretize scores into 0.1 buckets: -1.0, -0.9, ..., 0.9, 1.0
+        # Clip to [-1, 1] always (matches the reward model's output range
+        # and keeps the conditioning input bounded). Round to 0.1 buckets
+        # only when round_scores=True (or forced by discrete_conditioning,
+        # which needs a bucket to one-hot into).
+        do_round = self.round_scores or self.discrete_conditioning
         if len(rollout_z) > 0:
-            rollout_z = np.round(rollout_z * 10) / 10
+            if do_round:
+                rollout_z = np.round(rollout_z * 10) / 10
             rollout_z = np.clip(rollout_z, -1.0, 1.0)
         if len(demo_z) > 0:
-            demo_z = np.round(demo_z * 10) / 10
+            if do_round:
+                demo_z = np.round(demo_z * 10) / 10
             demo_z = np.clip(demo_z, -1.0, 1.0)
 
         # Infer num_reward_dims from scores file
@@ -110,13 +131,23 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
         if has_rollouts:
             # Load and concatenate all rollout files
             all_rollout_obs, all_rollout_actions, all_rollout_lengths = [], [], []
+            total_rollout_eps = 0
             for rpath in rollout_paths:
                 data = np.load(rpath)
                 n = len(data['episode_lengths'])
                 all_rollout_obs.append((data['obs'][:n], data['episode_lengths']))
                 all_rollout_actions.append(data['actions'][:n])
                 all_rollout_lengths.append(data['episode_lengths'])
+                total_rollout_eps += n
                 print(f"  Loaded {n} rollouts from {rpath}")
+            if total_rollout_eps != len(rollout_z):
+                raise ValueError(
+                    f"Rollout count mismatch between rollouts.npz files "
+                    f"({total_rollout_eps} total episodes across {len(rollout_paths)} "
+                    f"file(s)) and scores.json rollout_scores_zscore "
+                    f"({len(rollout_z)}). Re-run Phase 3 (reward model training) "
+                    f"on the current rollout set so scores.json is fresh."
+                )
 
             # Process each file's episodes with the corresponding z-scores
             rollout_offset = 0
@@ -163,7 +194,18 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
 
         with h5py.File(demo_hdf5_path, 'r') as f:
             demos = f['data']
-            n_demos = min(len(demos), len(demo_z))
+            n_hdf5_demos = len([k for k in demos.keys() if k.startswith('demo_')])
+            n_score_demos = len(demo_z)
+            if n_hdf5_demos != n_score_demos:
+                raise ValueError(
+                    f"Demo count mismatch between demos.hdf5 ({n_hdf5_demos}) "
+                    f"and scores.json ({n_score_demos}). The reward model was "
+                    f"trained on a different demo set than is being loaded here. "
+                    f"Re-run Phase 3 (reward model training) on the current "
+                    f"demos.hdf5 ({demo_hdf5_path}) so scores.json is fresh, "
+                    f"or point scores_path={scores_path} to a matching file."
+                )
+            n_demos = n_hdf5_demos
             for i in tqdm(range(n_demos), desc="Loading demo episodes"):
                 demo = demos[f'demo_{i}']
                 obs_parts = [demo['obs'][key][:].astype(np.float32) for key in obs_keys]
@@ -232,50 +274,43 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
             pad_after=self.pad_after,
             episode_mask=~self.train_mask)
         val_set.train_mask = ~self.train_mask
+        # Conditioning-noise augmentation is a training-only regulariser.
+        val_set.augment_score = 0.0
         return val_set
 
     def get_normalizer(self, **kwargs) -> LinearNormalizer:
         normalizer = LinearNormalizer()
 
-        # Action: identity normalizer (already normalized actions from policy)
+        # Action: per-dim range normalizer. Actions are 10D
+        # [pos(3) + rot6d(6) + gripper(1)]. The position dims are in
+        # world-frame meters (~0.1-0.3) so an identity normalizer made the
+        # MSE loss heavily favor position errors over rot6d/gripper errors.
+        # Per-dim range scaling balances the loss across action components.
         action_stat = array_to_stats(self.replay_buffer['action'])
-        normalizer['action'] = get_identity_normalizer_from_stat(action_stat)
+        normalizer['action'] = get_range_normalizer_from_stat(action_stat)
 
-        # Obs: normalize first D dims normally, last conditioning dims with identity
+        # Obs: per-dim range scaling for the base obs (with PickPlace masks
+        # applied via the shared helper), identity for the appended z-score
+        # conditioning dims.
         all_obs = self.replay_buffer['obs']  # (total_steps, D+C)
         D = all_obs.shape[-1] - self.conditioning_dims
-
         obs_base = all_obs[:, :D]
-        obs_reward = all_obs[:, D:]
-
         base_stat = array_to_stats(obs_base)
-        reward_stat = array_to_stats(obs_reward)
+        obs_starts_with_object = (
+            len(self.obs_keys) > 0 and self.obs_keys[0] == 'object')
+        base_scale, base_offset = pickplace_masked_range_scale_offset(
+            base_stat,
+            n_active_objects=self.n_active_objects,
+            obs_starts_with_object=obs_starts_with_object,
+        )
 
-        # Base obs normalizer
-        base_normalizer = normalizer_from_stat(base_stat)
-        # Reward dims: identity (z-scores pass through)
-        reward_normalizer_params = get_identity_normalizer_from_stat(reward_stat)
-
-        # Combine into single normalizer for full obs
-        # We need to create a combined scale/offset
-        base_params = base_normalizer.get_output_stats()
-        # Actually, let's just create a manual combined normalizer
-        full_stat = array_to_stats(all_obs)
-
-        # Get scale/offset from base normalizer
-        base_sd = base_normalizer.state_dict()
-        # Extract scale and offset from the base normalizer
-        # SingleFieldLinearNormalizer stores params internally
-        # Easier: compute manually
-        max_abs = np.maximum(base_stat['max'].max(), np.abs(base_stat['min']).max())
-        base_scale = np.full(D, fill_value=1.0/max_abs, dtype=np.float32)
-        base_offset = np.zeros(D, dtype=np.float32)
-
+        # Reward dims: identity (z-scores pass through).
         reward_scale = np.ones(self.conditioning_dims, dtype=np.float32)
         reward_offset = np.zeros(self.conditioning_dims, dtype=np.float32)
 
-        full_scale = np.concatenate([base_scale, reward_scale])
-        full_offset = np.concatenate([base_offset, reward_offset])
+        full_stat = array_to_stats(all_obs)
+        full_scale = np.concatenate([base_scale, reward_scale]).astype(np.float32)
+        full_offset = np.concatenate([base_offset, reward_offset]).astype(np.float32)
 
         normalizer['obs'] = SingleFieldLinearNormalizer.create_manual(
             scale=full_scale,
@@ -293,5 +328,29 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         data = self.sampler.sample_sequence(idx)
+        # Conditioning-noise augmentation: noise is added BEFORE re-rounding
+        # to the same 0.1 buckets used at construction, so each (state, action)
+        # pair sometimes gets re-labeled with an adjacent bucket — randomising
+        # the bucket assignment rather than smoothing within a bucket.
+        # Skipped for one-hot conditioning (would corrupt the encoding) and
+        # for the validation set (augment_score is zeroed on the val copy).
+        # IMPORTANT: sampler.sample_sequence returns a numpy VIEW into the
+        # replay buffer when no padding is needed (sampler.py:129). Mutating
+        # `data['obs']` in-place would permanently corrupt the buffer, so we
+        # copy before writing.
+        if (self.augment_score > 0.0
+                and not self.discrete_conditioning
+                and self.conditioning_dims > 0
+                and 'obs' in data):
+            obs = data['obs'].copy()
+            cond = obs[..., -self.conditioning_dims:]
+            noise = np.random.uniform(-self.augment_score, self.augment_score,
+                                      size=cond.shape).astype(obs.dtype)
+            new_cond = cond + noise
+            if self.round_scores:
+                new_cond = np.round(new_cond * 10) / 10
+            new_cond = np.clip(new_cond, -1.0, 1.0)
+            obs[..., -self.conditioning_dims:] = new_cond.astype(obs.dtype)
+            data['obs'] = obs
         torch_data = dict_apply(data, torch.from_numpy)
         return torch_data

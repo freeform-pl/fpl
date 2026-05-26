@@ -8,6 +8,7 @@ if __name__ == "__main__":
     os.chdir(ROOT_DIR)
 
 import os
+import time
 import hydra
 import torch
 from omegaconf import OmegaConf
@@ -124,7 +125,12 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
             scores_meta = json.load(f)
         num_reward_dims = len(scores_meta['reward_names'])
         env_runner.num_reward_dims = num_reward_dims
+        # Use the reward model's own axis names for per-axis eval logging — no
+        # need to pass them through Hydra; this is authoritative.
+        env_runner.reward_axis_names = env_runner._parse_reward_axes(
+            scores_meta['reward_names'])
         print(f"Reward dims: {num_reward_dims} ({scores_meta['reward_names']})")
+        print(f"Per-axis eval logging enabled for: {env_runner.reward_axis_names}")
 
         # Build eval conditioning targets: list of (label, array_of_length_K)
         # Scores are normalized to [-1, 1], so defaults are ±1.0
@@ -207,8 +213,10 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
 
         # training loop
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
+        train_start_time = time.time()
         with JsonLogger(log_path) as json_logger:
             for local_epoch_idx in range(cfg.training.num_epochs):
+                epoch_start_time = time.time()
                 step_log = dict()
                 # ========= train for this epoch ==========
                 train_losses = list()
@@ -268,8 +276,8 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
                     policy = self.ema_model
                 policy.eval()
 
-                # run rollout
-                if (self.epoch % cfg.training.rollout_every) == 0:
+                # run rollout — skip epoch 0 (random-init policy, slow + meaningless)
+                if self.epoch > 0 and (self.epoch % cfg.training.rollout_every) == 0:
                     metric_lines = []
 
                     for z_label, z_target in eval_z_targets:
@@ -316,8 +324,8 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
                             # log epoch average validation loss
                             step_log['val_loss'] = val_loss
 
-                # run flow sampling on a training batch
-                if (self.epoch % cfg.training.sample_every) == 0:
+                # run flow sampling on a training batch — skip epoch 0
+                if self.epoch > 0 and (self.epoch % cfg.training.sample_every) == 0:
                     with torch.no_grad():
                         # sample trajectory from training set, and evaluate difference
                         batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
@@ -341,8 +349,8 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
                         del pred_action
                         del mse
 
-                # checkpoint
-                if (self.epoch % cfg.training.checkpoint_every) == 0:
+                # checkpoint — skip epoch 0 (no rollout metrics yet for topk)
+                if self.epoch > 0 and (self.epoch % cfg.training.checkpoint_every) == 0:
                     # checkpointing
                     if cfg.checkpoint.save_last_ckpt:
                         self.save_checkpoint()
@@ -362,7 +370,23 @@ class TrainRewardConditionedFlowTransformerLowdimWorkspace(BaseWorkspace):
                 # ========= eval end for this epoch ==========
                 policy.train()
 
-                # end of epoch
+                # end of epoch — wall-time bookkeeping for ETA plots
+                epoch_seconds = time.time() - epoch_start_time
+                elapsed_minutes = (time.time() - train_start_time) / 60.0
+                # Use the average epoch wall time so far as the predictor for ETA.
+                avg_epoch_seconds = (time.time() - train_start_time) / max(local_epoch_idx + 1, 1)
+                epochs_remaining = max(cfg.training.num_epochs - (local_epoch_idx + 1), 0)
+                eta_minutes = epochs_remaining * avg_epoch_seconds / 60.0
+                step_log['timing/epoch_seconds'] = float(epoch_seconds)
+                step_log['timing/elapsed_minutes'] = float(elapsed_minutes)
+                step_log['timing/eta_minutes'] = float(eta_minutes)
+                step_log['timing/total_estimate_minutes'] = float(elapsed_minutes + eta_minutes)
+                if (local_epoch_idx + 1) % 10 == 0 or local_epoch_idx == 0:
+                    print(f"[Epoch {self.epoch}] this_epoch={epoch_seconds:.1f}s  "
+                          f"elapsed={elapsed_minutes:.1f}min  "
+                          f"eta={eta_minutes:.1f}min  "
+                          f"total≈{(elapsed_minutes + eta_minutes):.1f}min")
+
                 # log of last step is combined with validation and rollout
                 wandb_run.log(step_log, step=self.global_step)
                 json_logger.log(step_log)
