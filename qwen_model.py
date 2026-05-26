@@ -494,6 +494,90 @@ class QwenRewardModel(nn.Module):
         return rewards
 
     # ------------------------------------------------------------------
+    # Per-frame inference (for visualization / paper figures)
+    # ------------------------------------------------------------------
+
+    def forward_per_frame(
+        self,
+        third_person: torch.Tensor,
+        wrist: torch.Tensor,
+        padding_mask: torch.Tensor = None,
+        axis_labels: list[str] | None = None,
+    ) -> torch.Tensor:
+        """Per-pair reward predictions (no temporal sum).
+
+        Only defined for discounted and open_cum modes — those are the only
+        variants whose final score is a sum of per-pair scores. Returns
+        (B, T, K) with NaN at padded positions.
+        """
+        if not (self.discounted or self.open_cum):
+            raise NotImplementedError(
+                "forward_per_frame is only defined for discounted and open_cum modes"
+            )
+
+        device = next(self.parameters()).device
+        with torch.no_grad():
+            if third_person.dtype != torch.uint8:
+                third_person = (third_person * 255).clamp(0, 255).to(torch.uint8)
+            if wrist.dtype != torch.uint8:
+                wrist = (wrist * 255).clamp(0, 255).to(torch.uint8)
+
+        if self.open_cum:
+            return self._forward_per_frame_open_cum(
+                third_person, wrist, padding_mask, axis_labels, device
+            )
+        return self._forward_per_frame_discounted(
+            third_person, wrist, padding_mask, axis_labels, device
+        )
+
+    def _forward_per_frame_discounted(self, third_person, wrist, padding_mask, axis_labels, device):
+        B, T = third_person.shape[:2]
+        with torch.no_grad():
+            inputs, frame_counts = self._prepare_inputs_discounted(
+                third_person, wrist, padding_mask, axis_labels=axis_labels,
+            )
+            inputs = {k: v.to(device) for k, v in inputs.items()
+                      if isinstance(v, torch.Tensor)}
+
+        pooled = self._extract_pooled(inputs, device)            # (sum_T, hidden)
+        per_frame = self._apply_reward_heads(pooled)              # (sum_T, K)
+
+        out = torch.full((B, T, self.num_preferences), float("nan"),
+                         device=device, dtype=per_frame.dtype)
+        offset = 0
+        for b, n in enumerate(frame_counts):
+            out[b, :n] = per_frame[offset:offset + n]
+            offset += n
+        return out
+
+    def _forward_per_frame_open_cum(self, third_person, wrist, padding_mask, axis_labels, device):
+        B, T = third_person.shape[:2]
+        with torch.no_grad():
+            inputs, frame_counts = self._prepare_inputs_open_cum(
+                third_person, wrist, padding_mask, axis_labels=axis_labels,
+            )
+            inputs = {k: v.to(device) for k, v in inputs.items()
+                      if isinstance(v, torch.Tensor)}
+
+        outputs = self.qwen(**inputs, output_hidden_states=True, return_dict=True)
+        last_hidden = outputs.hidden_states[-1]  # (B, S, H)
+        input_ids = inputs["input_ids"]
+        vision_end_id = self.processor.vision_end_token_id
+
+        out = torch.full((B, T, self.num_preferences), float("nan"),
+                         device=device, dtype=last_hidden.dtype)
+        for b in range(B):
+            positions = (input_ids[b] == vision_end_id).nonzero(as_tuple=True)[0]
+            pair_ends = positions[1::2]
+            if len(pair_ends) == 0:
+                continue
+            pooled = last_hidden[b, pair_ends].float()
+            per_frame = self._apply_reward_heads(pooled)  # (n_frames, K)
+            n = min(int(frame_counts[b]), per_frame.shape[0])
+            out[b, :n] = per_frame[:n].to(out.dtype)
+        return out.float()
+
+    # ------------------------------------------------------------------
     # Checkpointing helpers
     # ------------------------------------------------------------------
 
