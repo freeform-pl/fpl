@@ -203,7 +203,7 @@ def auto_detect_preference_keys(preference_dirs: list, cross_dirs: list) -> list
                 continue
             try:
                 with open(pf) as f:
-                    keys.update(json.load(f).get("preferences", {}).keys())
+                    keys.update(k.lower() for k in json.load(f).get("preferences", {}).keys())
             except Exception:
                 pass
     for cdir in cross_dirs or []:
@@ -212,7 +212,7 @@ def auto_detect_preference_keys(preference_dirs: list, cross_dirs: list) -> list
         for cf in _glob.glob(os.path.join(cdir, "preference_*.json")):
             try:
                 with open(cf) as f:
-                    keys.update(json.load(f).get("preferences", {}).keys())
+                    keys.update(k.lower() for k in json.load(f).get("preferences", {}).keys())
             except Exception:
                 pass
     return sorted(keys)
@@ -227,9 +227,10 @@ def parse_preference_labels(preferences: dict, preference_keys: list) -> torch.T
         0.0 = B is preferred
         0.5 = Equal
     """
+    lower_map = {k.lower(): v for k, v in preferences.items()}
     labels = []
     for key in preference_keys:
-        val = preferences.get(key, "Equal")
+        val = lower_map.get(key.lower(), "Equal")
         if val == "A":
             labels.append(1.0)
         elif val == "B":
@@ -268,7 +269,7 @@ class PreferenceDataset(Dataset):
         self.img_size = img_size
         self.training = training
         self.preload = preload
-        self.preference_keys = preference_keys
+        self.preference_keys = [k.lower() for k in preference_keys]
         self.action_chunk_size = action_chunk_size
         self.preload_offsets = preload_offsets
 
@@ -492,6 +493,7 @@ def load_cross_preferences(
 
     Returns a list of samples in the same dict format as PreferenceDataset.samples.
     """
+    preference_keys = [k.lower() for k in preference_keys]
     import glob as _glob
 
     # Build timestamp → (hdf5_path, succeeded) across all regular preference sessions.
@@ -746,7 +748,7 @@ class OpenPreferenceDataset(Dataset):
 
     def __init__(self, base_dataset, preference_keys: list[str], skip_equal: bool = False):
         self.base = base_dataset
-        self.preference_keys = preference_keys
+        self.preference_keys = [k.lower() for k in preference_keys]
         self.skip_equal = skip_equal
         self.items = []  # (base_idx, axis_idx, axis_name)
         for i, sample in enumerate(base_dataset.samples):

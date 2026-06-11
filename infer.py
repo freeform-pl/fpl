@@ -20,6 +20,7 @@ Usage:
 
 import argparse
 import json
+import math
 import os
 from collections import defaultdict
 
@@ -30,7 +31,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from dataset import load_trajectory
+from dataset import load_trajectory, load_trajectories_all_offsets
 from model import RewardModel, DiscountedRewardModel
 from flow_model import RewardModel as FlowRewardModel
 from qwen_model import QwenRewardModel
@@ -60,13 +61,74 @@ def to_quantile_bucket(score: float, edges: list[float]) -> int:
     return N_BUCKETS
 
 
-def score_trajectory(model, hdf5_path: str, args, device: torch.device) -> dict:
-    """Return raw scores only; buckets are added after quantile edges are computed."""
+def _qwen_per_frame(model, traj, keys, device) -> np.ndarray:
+    """Per-step rewards (n_real, K) for one loaded trajectory (open_cum/discounted)."""
+    tp = traj["third_person"].unsqueeze(0).to(device)
+    wr = traj["wrist"].unsqueeze(0).to(device)
+    pm = traj["padding_mask"].unsqueeze(0).to(device)
+    n_real = int((~traj["padding_mask"]).sum())
+    with torch.no_grad():
+        if model.open_cum:
+            cols = [model.forward_per_frame(tp, wr, pm, axis_labels=[k])[0, :, 0]
+                    for k in keys]
+            pf = torch.stack(cols, dim=-1)            # (T, K)
+        else:
+            pf = model.forward_per_frame(tp, wr, pm)[0]  # (T, K)
+    return pf[:n_real].float().cpu().numpy()
+
+
+def score_trajectory(model, hdf5_path: str, args, device: torch.device):
+    """Return ``(raw_cumulative, per_frame)`` for one trajectory.
+
+    ``raw_cumulative`` is ``{axis: float}`` (buckets are added later, once the
+    quantile edges are known). ``per_frame`` is an ``(n_real, K)`` float array
+    of per-step rewards, or ``None`` for models whose trajectory score is not a
+    sum of per-step scores.
+
+    For the qwen ``open_cum`` / ``discounted`` variants the trajectory score is
+    by construction the sum of per-step rewards (see ``_forward_open_cum`` /
+    ``_forward_discounted``), so we compute the per-step rewards once and sum
+    them — the cumulative score matches the direct forward at no extra cost.
+
+    With ``args.dense`` (and stride > 1) the qwen variants are scored at every
+    temporal offset 0..stride-1 and interleaved into a full-resolution per-step
+    array indexed by true frame index — stride× more forward passes, but the
+    curve gets stride× more points. (Cumulative magnitudes grow accordingly, so
+    raw sums are only comparable within a dense run.)
+    """
+    keys = args.preference_keys
+    is_qwen_summable = isinstance(model, QwenRewardModel) and (
+        getattr(model, "open_cum", False) or getattr(model, "discounted", False)
+    )
+    dense = getattr(args, "dense", False) and (args.stride or 1) > 1
+
+    if is_qwen_summable and dense:
+        offsets = list(range(args.stride))
+        trajs = load_trajectories_all_offsets(
+            hdf5_path, args.stride, args.seq_len,
+            (args.img_size, args.img_size), offsets=offsets,
+        )
+        dense_vals = {}  # true_frame_index -> (K,) per-step rewards
+        for o, tr in zip(offsets, trajs):
+            pf_o = _qwen_per_frame(model, tr, keys, device)  # (n_real_o, K)
+            for j in range(pf_o.shape[0]):
+                dense_vals[o + j * args.stride] = pf_o[j]
+        if dense_vals:
+            length = max(dense_vals) + 1
+            pf = np.full((length, len(keys)), np.nan, dtype=np.float32)
+            for idx, vec in dense_vals.items():
+                pf[idx] = vec
+        else:
+            pf = np.zeros((0, len(keys)), dtype=np.float32)
+        raw = {k: float(np.nansum(pf[:, i])) for i, k in enumerate(keys)}
+        return raw, pf
+
     traj = load_trajectory(hdf5_path, args.stride, args.seq_len, (args.img_size, args.img_size), offset=0)
 
     tp = traj["third_person"].unsqueeze(0).to(device)
     wr = traj["wrist"].unsqueeze(0).to(device)
     pm = traj["padding_mask"].unsqueeze(0).to(device)
+    n_real = int((~traj["padding_mask"]).sum())
 
     with torch.no_grad():
         if isinstance(model, FlowRewardModel):
@@ -77,21 +139,37 @@ def score_trajectory(model, hdf5_path: str, args, device: torch.device) -> dict:
                 "proprio": traj["proprio"].unsqueeze(0).to(device),
             }
             rewards = model(obs)  # (1, K)
-            return {k: float(rewards[0, i]) for i, k in enumerate(args.preference_keys)}
+            return {k: float(rewards[0, i]) for i, k in enumerate(keys)}, None
+
+        # Per-step-summable qwen variants: derive the cumulative score from the
+        # per-step rewards so the curve and the score are guaranteed consistent.
+        if is_qwen_summable:
+            pf = _qwen_per_frame(model, traj, keys, device)
+            raw = {k: float(np.nansum(pf[:, i])) for i, k in enumerate(keys)}
+            return raw, pf
 
         if getattr(args, "is_open_qwen", False):
-            # Open Qwen: single reward head, run once per axis with axis name in prompt
+            # Open Qwen (non-cumulative): single reward head, run once per axis
+            # with the axis name in the prompt. No per-step decomposition.
             result = {}
-            for k in args.preference_keys:
+            for k in keys:
                 rewards = model(tp, wr, pm, axis_labels=[k])  # (1, 1)
                 result[k] = float(rewards[0, 0])
-            return result
+            return result, None
 
         rewards = model(
             tp, wr, pm,
         )  # (1, K)
+        raw = {k: float(rewards[0, i]) for i, k in enumerate(keys)}
 
-    return {k: float(rewards[0, i]) for i, k in enumerate(args.preference_keys)}
+        per_frame = None
+        if isinstance(model, DiscountedRewardModel):
+            try:
+                pf = model.forward_per_frame(tp, wr, pm)[0][:n_real]
+                per_frame = pf.float().cpu().numpy()
+            except Exception:
+                per_frame = None
+        return raw, per_frame
 
 
 def compute_quantile_edges(all_scores: dict[str, list[float]]) -> dict[str, list[float]]:
@@ -782,6 +860,10 @@ def main():
     parser.add_argument("--task", type=str, default=None,
                         help="If set, override the task stored in the checkpoint and run "
                              "inference using this task's preference axes instead.")
+    parser.add_argument("--dense", action="store_true",
+                        help="Score qwen open_cum/discounted trajectories at every temporal "
+                             "offset 0..stride-1 and interleave into full-resolution per-step "
+                             "rewards (stride× more forward passes; denser plot points).")
     args = parser.parse_args()
 
     args.preferences_dir = [d.strip() for d in args.preferences_dir.split(",")]
@@ -799,6 +881,9 @@ def main():
                 parser.error(f"--{key} not found in checkpoint; pass it explicitly")
 
     print(f"Args: {args}")
+    if args.dense and (args.stride or 1) > 1:
+        print(f"[dense] scoring at all {args.stride} temporal offsets — "
+              f"~{args.stride}x more forward passes per trajectory.")
 
     saved_task = saved_args.get("task", "cube_in_three_bowls")
     if args.task is not None:
@@ -810,7 +895,7 @@ def main():
         task = args.task
     else:
         task = saved_task
-    args.preference_keys = TASKS[task]
+    args.preference_keys = [k.lower() for k in TASKS[task]]
 
     model_type = saved_args.get("model", "transformer")
     if model_type == "flow":
@@ -897,6 +982,7 @@ def main():
     all_scores = defaultdict(list)
     results = []       # [(pref_dir, hdf5_a, raw_a, hdf5_b, raw_b)]
     solo_results = []  # [(hdf5_path, raw_scores)]
+    per_frame_by_path = {}  # hdf5_path -> (n_real, K) per-step rewards (or None)
 
     for pref_dir in pref_dirs:
         hdf5_a = os.path.join(pref_dir, "rollout_A.hdf5")
@@ -918,12 +1004,14 @@ def main():
             continue
 
         try:
-            raw_a = score_trajectory(model, hdf5_a, args, device)
-            raw_b = score_trajectory(model, hdf5_b, args, device)
+            raw_a, pf_a = score_trajectory(model, hdf5_a, args, device)
+            raw_b, pf_b = score_trajectory(model, hdf5_b, args, device)
         except (KeyError, OSError) as e:
             print(f"  [skip] {pref_dir} — {e}")
             continue
         results.append((pref_dir, hdf5_a, raw_a, hdf5_b, raw_b))
+        per_frame_by_path[hdf5_a] = pf_a
+        per_frame_by_path[hdf5_b] = pf_b
 
         for k, v in raw_a.items():
             all_scores[k].append(v)
@@ -948,11 +1036,12 @@ def main():
             print(f"  [skip] {hdf5_path} — incompatible HDF5 format")
             continue
         try:
-            raw = score_trajectory(model, hdf5_path, args, device)
+            raw, pf = score_trajectory(model, hdf5_path, args, device)
         except (KeyError, OSError) as e:
             print(f"  [skip] {hdf5_path} — {e}")
             continue
         solo_results.append((hdf5_path, raw))
+        per_frame_by_path[hdf5_path] = pf
         for k, v in raw.items():
             all_scores[k].append(v)
         name = os.path.splitext(os.path.basename(hdf5_path))[0]
@@ -975,8 +1064,46 @@ def main():
         for k, vals in all_scores.items()
     }
 
+    # --- Per-timestep population stats: for each axis and timestep index,
+    #     mean/std of the per-step reward across every trajectory that reaches
+    #     that timestep. Used by plot_single's --standardize_per_timestep. ---
+    per_step_vals = defaultdict(lambda: defaultdict(list))  # axis -> t -> [values]
+    for pf in per_frame_by_path.values():
+        if pf is None:
+            continue
+        for t in range(pf.shape[0]):
+            for i, key in enumerate(args.preference_keys):
+                v = pf[t, i]
+                if np.isfinite(v):
+                    per_step_vals[key][t].append(float(v))
+    ts_stats = {}  # axis -> list over t of {"mean", "std"}
+    for key in args.preference_keys:
+        per_t = per_step_vals.get(key, {})
+        t_max = (max(per_t) + 1) if per_t else 0
+        ts_stats[key] = [
+            {
+                "mean": float(np.mean(per_t[t])) if per_t.get(t) else 0.0,
+                "std":  float(np.std(per_t[t]))  if per_t.get(t) else 0.0,
+            }
+            for t in range(t_max)
+        ]
+
     # --- Pass 2: write JSON files with all label types ---
+    dense_mode = bool(args.dense and (args.stride or 1) > 1)
+
+    def _clean(x) -> float | None:
+        # JSON has no NaN/Inf; emit null so plot_single reads valid JSON.
+        x = float(x)
+        return x if math.isfinite(x) else None
+
     def _make_score_dict(raw: dict, source_hdf5: str) -> dict:
+        pf = per_frame_by_path.get(source_hdf5)  # (n_real, K) or None
+        per_frame = None
+        if pf is not None:
+            per_frame = {
+                k: [_clean(pf[t, i]) for t in range(pf.shape[0])]
+                for i, k in enumerate(args.preference_keys)
+            }
         return {
             "source_hdf5": source_hdf5,
             "raw": raw,
@@ -986,6 +1113,36 @@ def main():
                                for k, v in raw.items()},
             "buckets":         {k: to_bucket(v, score_stats[k]["min"], score_stats[k]["max"]) for k, v in raw.items()},
             "buckets_quantile": {k: to_quantile_bucket(v, quantile_edges[k]) for k, v in raw.items()},
+            # Everything plot_single needs to render this trajectory standalone:
+            "per_frame": per_frame,
+            "norm_stats": {
+                k: {
+                    "mean": score_stats[k]["mean"],
+                    "std":  score_stats[k]["std"],
+                    "min":  score_stats[k]["min"],
+                    "max":  score_stats[k]["max"],
+                }
+                for k in raw
+            },
+            # Per-timestep population mean/std, aligned 1:1 with per_frame above.
+            "norm_stats_per_timestep": (
+                {k: ts_stats[k][: pf.shape[0]] for k in args.preference_keys}
+                if pf is not None else None
+            ),
+            "meta": {
+                "stride": args.stride,
+                "seq_len": args.seq_len,
+                "img_size": args.img_size,
+                "preference_keys": list(args.preference_keys),
+                "model_type": model_type,
+                "ckpt": args.ckpt,
+                "n_frames": int(pf.shape[0]) if pf is not None else None,
+                "dense": bool(dense_mode),
+                # How plot_single should load frames so they align 1:1 with
+                # per_frame: dense per_frame is indexed by true frame (stride 1).
+                "frame_stride": 1 if dense_mode else args.stride,
+                "frame_seq_len": int(pf.shape[0]) if (dense_mode and pf is not None) else args.seq_len,
+            },
         }
 
     for pref_dir, hdf5_a, raw_a, hdf5_b, raw_b in results:
@@ -1075,6 +1232,7 @@ def main():
             "min": float(arr.min()),
             "max": float(arr.max()),
             "mean": float(arr.mean()),
+            "std": float(arr.std()),
             "p10": float(np.percentile(arr, 10)),
             "p25": float(np.percentile(arr, 25)),
             "p50": float(np.percentile(arr, 50)),

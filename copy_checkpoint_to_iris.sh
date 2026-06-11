@@ -6,7 +6,24 @@
 #
 # Example:
 #   ./copy_checkpoint_to_iris.sh setup_table_iter3_multi_qwen_1dp_iter3_3000 5000
-#
+#   ./copy_checkpoint_to_iris.sh plate_toast_iter0_multi_qwen_1dp_iter0_2000 30000
+#   ./copy_checkpoint_to_iris.sh pick_and_place_iter1_multi_qwen_1dp_iter1_1700 30000
+#   ./copy_checkpoint_to_iris.sh pick_and_place_iter1_single_qwen_1dp_iter1_single_1700 30000
+#   ./copy_checkpoint_to_iris.sh setup_table_single_matching_1dp_iter1_3000 30000
+#   ./copy_checkpoint_to_iris.sh burger_single_matching_1dp_iter1_1500 30000
+
+# /hai/scratch/marcelto/reward_learning/openpi/checkpoints/pi05_droid_finetune/pi05_marcelto/
+# /hai/scratch/marcelto/reward_learning/openpi/checkpoints/pi05_droid_finetune/pi05_marcelto/pick_and_place_iter1_single_qwen_v2_1dp_iter1_single_1700
+# /hai/scratch/marcelto/reward_learning/openpi/checkpoints/pi05_droid_finetune/pi05_marcelto/plate_toast_iter1_multi_qwen_1dp_iter1_5000
+# /hai/scratch/marcelto/reward_learning/openpi/checkpoints/pi05_droid_finetune/pi05_marcelto/plate_toast_iter1_single_qwen_1dp_iter1_5000
+# /hai/scratch/marcelto/reward_learning/openpi/checkpoints/pi05_droid_finetune/pi05_marcelto/pick_and_place_iter1_multi_qwen_v3_1dp_iter1_1700_new
+# /hai/scratch/marcelto/reward_learning/openpi/checkpoints/pi05_droid_finetune/pi05_marcelto/
+
+#   ./copy_checkpoint_to_iris.sh pick_and_place_iter1_single_matching_1dp_iter1_single_matching_1500 25000
+#   ./copy_checkpoint_to_iris.sh pick_and_place_iter1_single_qwen_v2_1dp_iter1_single_1700 30000
+#   ./copy_checkpoint_to_iris.sh plate_toast_iter1_multi_qwen_1dp_iter1_5000 30000
+#   ./copy_checkpoint_to_iris.sh plate_toast_iter1_single_qwen_1dp_iter1_5000 30000
+# /hai/scratch/marcelto/reward_learning/openpi/checkpoints/pi05_droid_finetune/pi05_marcelto/
 # Source:      /hai/scratch/marcelto/reward_learning/openpi/checkpoints/pi05_droid_finetune/pi05_marcelto/<folder>/<ckpt>
 # Destination: iris-ws-7:/iris/u/marcelto/reward_learning_old/reward_learning/checkpoints/<folder>/<ckpt>
 #
