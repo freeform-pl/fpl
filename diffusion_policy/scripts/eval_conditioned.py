@@ -54,20 +54,21 @@ def load_policy(checkpoint, device):
     return policy, cfg
 
 
-def run_original_policy(policy, cfg, n_rollouts, output_dir, device):
+def run_original_policy(policy, cfg, n_rollouts, n_videos, output_dir, device):
     """Run the original (unconditioned) policy."""
     runner_cfg = cfg.task.env_runner
     runner_cfg.n_train = 0
     runner_cfg.n_train_vis = 0
     runner_cfg.n_test = n_rollouts
-    runner_cfg.n_test_vis = 0
+    runner_cfg.n_test_vis = n_videos
 
     runner = hydra.utils.instantiate(runner_cfg, output_dir=output_dir)
     log_data = runner.run(policy)
     return log_data
 
 
-def run_conditioned_policy(policy, cfg, n_rollouts, target_z_array, num_reward_dims, output_dir, device):
+def run_conditioned_policy(policy, cfg, n_rollouts, target_z_array, num_reward_dims,
+                           n_videos, output_dir, device):
     """Run conditioned policy with given per-axis z-score reward targets."""
     runner_cfg = cfg.task.env_runner
     runner_kwargs = OmegaConf.to_container(runner_cfg, resolve=True)
@@ -78,7 +79,7 @@ def run_conditioned_policy(policy, cfg, n_rollouts, target_z_array, num_reward_d
     runner_kwargs['n_train'] = 0
     runner_kwargs['n_train_vis'] = 0
     runner_kwargs['n_test'] = n_rollouts
-    runner_kwargs['n_test_vis'] = 0
+    runner_kwargs['n_test_vis'] = n_videos
 
     runner = RewardConditionedLowdimRunner(
         target_rewards=target_z_array.tolist(),
@@ -88,9 +89,22 @@ def run_conditioned_policy(policy, cfg, n_rollouts, target_z_array, num_reward_d
     return log_data
 
 
-METRIC_KEYS = [
-    'mean_success', 'mean_speed_reward', 'mean_smoothness',
-    'mean_score', 'mean_throughput', 'mean_first_success_step',
+def log_videos_to_wandb(log_data, prefix):
+    """Forward any sim_video_* entries in log_data to wandb under eval/<prefix>/."""
+    videos = {}
+    for key, value in log_data.items():
+        if not key.startswith('test/sim_video_'):
+            continue
+        seed = key[len('test/sim_video_'):]
+        videos[f'eval/{prefix}/sim_video_{seed}'] = value
+    if videos:
+        wandb.log(videos)
+        print(f"  Logged {len(videos)} video(s) to wandb under eval/{prefix}/")
+
+
+# Slow_fast-specific keys, ordered for a per-peg sub-table. Anything not in this
+# list is still extracted and printed — this just controls the per-peg layout.
+PEG_KEYS = [
     'mean_success_left', 'mean_success_right',
     'mean_speed_left', 'mean_speed_right',
     'mean_throughput_left', 'mean_throughput_right',
@@ -99,14 +113,34 @@ METRIC_KEYS = [
     'left_peg_rate', 'right_peg_rate',
 ]
 
+# Core metrics shown first in the main table when present.
+CORE_KEYS = [
+    'mean_success', 'mean_partial_success', 'mean_full_success',
+    'mean_strict_success', 'mean_score',
+    'mean_speed_reward', 'mean_smoothness',
+    'mean_throughput', 'mean_first_success_step',
+    'mean_n_placed', 'mean_n_placed_final', 'mean_first_placement_step',
+]
+
 
 def extract_metrics(log_data):
-    """Extract all test metrics from runner log data."""
+    """Extract every numeric test/* metric from runner log data.
+
+    Generic over slow_fast and pickplace — both put their per-axis values
+    (order_reward, bread_placed, *_drop, peg_reward, ...) under test/ in
+    log_data. Non-numeric entries (wandb.Video, etc.) are skipped.
+    """
     metrics = {}
-    for key in METRIC_KEYS:
-        full_key = f'test/{key}'
-        if full_key in log_data:
-            metrics[key] = log_data[full_key]
+    for full_key, value in log_data.items():
+        if not full_key.startswith('test/'):
+            continue
+        key = full_key[len('test/'):]
+        # Skip per-seed sim_video / sim_max_reward entries and anything
+        # that isn't a plain scalar (wandb.Video etc.).
+        if key.startswith('sim_video_') or key.startswith('sim_max_reward_'):
+            continue
+        if isinstance(value, (int, float, np.floating, np.integer)):
+            metrics[key] = float(value)
     return metrics
 
 
@@ -126,11 +160,13 @@ def log_metrics_to_wandb(metrics, prefix):
 @click.option('--eval_z_positive', default=None, type=str, help='Per-axis positive z-targets, e.g. "[1.0,1.0,1.0]"')
 @click.option('--eval_z_negative', default=None, type=str, help='Per-axis negative z-targets, e.g. "[-1.0,-1.0,-1.0]"')
 @click.option('--is_conditioned', is_flag=True, default=False, help='Whether the policy is reward-conditioned (eval at z_pos/z_zero/z_neg)')
+@click.option('--n_videos', default=3, type=int, help='Number of rollout videos to record/upload per z-target (0 disables)')
 @click.option('--output_dir', default='eval_conditioned_output')
 @click.option('--device', default='cuda:0')
 @click.option('--wandb_project', default='reward_cond_pipeline', help='wandb project name')
 def main(ckpt, scores_path, n_rollouts, num_reward_dims,
-         eval_z_positive, eval_z_negative, is_conditioned, output_dir, device, wandb_project):
+         eval_z_positive, eval_z_negative, is_conditioned, n_videos,
+         output_dir, device, wandb_project):
     os.makedirs(output_dir, exist_ok=True)
     device = torch.device(device)
 
@@ -182,57 +218,71 @@ def main(ckpt, scores_path, n_rollouts, num_reward_dims,
             print(f"Running CONDITIONED policy @ {z_label}={z_target}...")
             print("=" * 60)
             cond_log = run_conditioned_policy(
-                policy, cfg, n_rollouts, z_target, num_reward_dims, output_dir, device)
+                policy, cfg, n_rollouts, z_target, num_reward_dims,
+                n_videos, output_dir, device)
             results[z_label] = extract_metrics(cond_log)
             log_metrics_to_wandb(results[z_label], z_label)
+            log_videos_to_wandb(cond_log, z_label)
     else:
         print("\n" + "=" * 60)
         print("Running policy (unconditioned)...")
         print("=" * 60)
-        log = run_original_policy(policy, cfg, n_rollouts, output_dir, device)
+        log = run_original_policy(policy, cfg, n_rollouts, n_videos, output_dir, device)
         results['policy'] = extract_metrics(log)
         log_metrics_to_wandb(results['policy'], 'policy')
+        log_videos_to_wandb(log, 'policy')
 
     del policy
     torch.cuda.empty_cache()
 
-    # Print comparison table
-    core_keys = ['mean_success', 'mean_speed_reward', 'mean_smoothness', 'mean_score', 'mean_throughput']
-    peg_keys = ['mean_success_left', 'mean_success_right', 'mean_speed_left', 'mean_speed_right',
-                'mean_throughput_left', 'mean_throughput_right', 'left_peg_rate', 'right_peg_rate']
+    # Collect every metric that appeared in any result, ordered: CORE first,
+    # then per-axis (alphabetical), then PEG, then anything else. This makes
+    # the eval show drop / order / per-object placed / strict_success for
+    # pickplace and the slow_fast peg metrics alike.
+    all_seen = set()
+    for m in results.values():
+        all_seen.update(m.keys())
 
-    print("\n" + "=" * 100)
-    print("COMPARISON RESULTS — Core Metrics")
-    print("=" * 100)
-    header = f"{'Policy':<15s}"
-    for k in core_keys:
-        header += f" {k.replace('mean_', ''):>12s}"
-    print(header)
-    print("-" * len(header))
-    for name, metrics in results.items():
-        row = f"{name:<15s}"
-        for k in core_keys:
-            row += f" {metrics.get(k, 0.0):>12.3f}"
-        print(row)
+    def order_keys(seen):
+        ordered = []
+        for k in CORE_KEYS:
+            if k in seen:
+                ordered.append(k)
+                seen.discard(k)
+        peg_present = [k for k in PEG_KEYS if k in seen]
+        for k in peg_present:
+            seen.discard(k)
+        axis_like = sorted(k for k in seen
+                           if not k.startswith('mean_') and not k.startswith('sim_'))
+        for k in axis_like:
+            seen.discard(k)
+        rest = sorted(seen)
+        return ordered, axis_like, peg_present, rest
 
-    # Print peg metrics if available
-    has_peg = any(k in m for m in results.values() for k in peg_keys)
-    if has_peg:
-        print("\n" + "=" * 120)
-        print("COMPARISON RESULTS — Per-Peg Metrics")
-        print("=" * 120)
+    core_present, axis_keys, peg_present, rest_keys = order_keys(set(all_seen))
+
+    def print_table(title, keys, width=14, fmt=".3f"):
+        if not keys:
+            return
+        print("\n" + "=" * (15 + (width + 1) * len(keys)))
+        print(f"COMPARISON RESULTS — {title}")
+        print("=" * (15 + (width + 1) * len(keys)))
         header = f"{'Policy':<15s}"
-        for k in peg_keys:
-            header += f" {k.replace('mean_', ''):>14s}"
+        for k in keys:
+            header += f" {k.replace('mean_', '')[:width]:>{width}s}"
         print(header)
         print("-" * len(header))
         for name, metrics in results.items():
             row = f"{name:<15s}"
-            for k in peg_keys:
+            for k in keys:
                 val = metrics.get(k, None)
-                row += f" {val:>14.3f}" if val is not None else f" {'n/a':>14s}"
+                row += f" {val:>{width}{fmt}}" if val is not None else f" {'n/a':>{width}s}"
             print(row)
 
+    print_table("Core Metrics", core_present)
+    print_table("Per-Axis Metrics", axis_keys)
+    print_table("Per-Peg Metrics", peg_present)
+    print_table("Other Metrics", rest_keys)
     print("=" * 100)
 
     # Log all results as wandb summary
@@ -240,8 +290,8 @@ def main(ckpt, scores_path, n_rollouts, num_reward_dims,
         for metric_name, value in metrics.items():
             wandb.summary[f'comparison/{name}/{metric_name}'] = value
 
-    # Log comparison table to wandb
-    all_keys = core_keys + peg_keys
+    # Log comparison table to wandb — include every metric we saw.
+    all_keys = core_present + axis_keys + peg_present + rest_keys
     table_cols = ['policy'] + [k.replace('mean_', '') for k in all_keys]
     table = wandb.Table(columns=table_cols)
     for name, metrics in results.items():

@@ -238,15 +238,27 @@ fi
 if [ "${SKIP_REWARD_MODEL}" = "true" ]; then
     echo "=== Phase 3: SKIPPED (not needed for this baseline) ==="
 elif [ ${RESUME_FROM_PHASE} -le 3 ]; then
-    echo "=== Phase 3: Training reward model ==="
-    python reward_model/train_reward_model.py \
-        --rollout_data "${ROLLOUT_PATH}" \
-        --demo_hdf5 "${SCRIPTED_HDF5}" \
-        --output_dir "${REWARD_DIR}" \
-        --epochs ${REWARD_EPOCHS} \
-        --wandb_project "${WANDB_PROJECT}" \
-        --reward_axes "${REWARD_AXES}" \
-        ${N_PAIRS_FLAG}
+    if [ "${USE_VALUE_FUNCTION}" = "true" ]; then
+        echo "=== Phase 3: Training value function (RECAP-style) ==="
+        python reward_model/train_value_function.py \
+            --rollout_data "${ROLLOUT_PATH}" \
+            --demo_hdf5 "${SCRIPTED_HDF5}" \
+            --output_dir "${REWARD_DIR}" \
+            --task slow_fast \
+            --epochs ${REWARD_EPOCHS} \
+            --wandb_project "${WANDB_PROJECT}" \
+            --fail_penalty "${VALUE_FAIL_PENALTY:--100}"
+    else
+        echo "=== Phase 3: Training reward model ==="
+        python reward_model/train_reward_model.py \
+            --rollout_data "${ROLLOUT_PATH}" \
+            --demo_hdf5 "${SCRIPTED_HDF5}" \
+            --output_dir "${REWARD_DIR}" \
+            --epochs ${REWARD_EPOCHS} \
+            --wandb_project "${WANDB_PROJECT}" \
+            --reward_axes "${REWARD_AXES}" \
+            ${N_PAIRS_FLAG}
+    fi
 else
     echo "=== Phase 3: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
 fi
@@ -325,6 +337,7 @@ echo "Using conditioned checkpoint: ${COND_CKPT}"
 if [ ${RESUME_FROM_PHASE} -le 5 ]; then
     echo "=== Phase 5: Evaluation ==="
     EVAL_ARGS="--ckpt ${COND_CKPT} --n_rollouts ${N_EVAL_ROLLOUTS} --output_dir ${PIPELINE_DIR}/eval --wandb_project ${WANDB_PROJECT} --num_reward_dims ${NUM_REWARD_DIMS}"
+    EVAL_ARGS="${EVAL_ARGS} --n_videos ${N_EVAL_VIDEOS:-3}"
     if [ "${IS_CONDITIONED_EVAL}" = "true" ]; then
         EVAL_ARGS="${EVAL_ARGS} --is_conditioned"
     fi
@@ -411,15 +424,27 @@ if [ ${N_ITERATIONS} -gt 0 ]; then
 
         # --- Step B: Retrain reward model ---
         if [ ${RESUME_FROM_PHASE} -le ${STEP_B_PHASE} ]; then
-            echo "=== Iter ${ITER} Step B (phase ${STEP_B_PHASE}): Training reward model ==="
-            python reward_model/train_reward_model.py \
-                --rollout_data "${ALL_ROLLOUT_FILES}" \
-                --demo_hdf5 "${SCRIPTED_HDF5}" \
-                --output_dir "${ITER_REWARD_DIR}" \
-                --epochs ${REWARD_EPOCHS} \
-                --wandb_project "${WANDB_PROJECT}" \
-                --reward_axes "${REWARD_AXES}" \
-                ${N_PAIRS_FLAG}
+            if [ "${USE_VALUE_FUNCTION}" = "true" ]; then
+                echo "=== Iter ${ITER} Step B (phase ${STEP_B_PHASE}): Training value function ==="
+                python reward_model/train_value_function.py \
+                    --rollout_data "${ALL_ROLLOUT_FILES}" \
+                    --demo_hdf5 "${SCRIPTED_HDF5}" \
+                    --output_dir "${ITER_REWARD_DIR}" \
+                    --task slow_fast \
+                    --epochs ${REWARD_EPOCHS} \
+                    --wandb_project "${WANDB_PROJECT}" \
+                    --fail_penalty "${VALUE_FAIL_PENALTY:--100}"
+            else
+                echo "=== Iter ${ITER} Step B (phase ${STEP_B_PHASE}): Training reward model ==="
+                python reward_model/train_reward_model.py \
+                    --rollout_data "${ALL_ROLLOUT_FILES}" \
+                    --demo_hdf5 "${SCRIPTED_HDF5}" \
+                    --output_dir "${ITER_REWARD_DIR}" \
+                    --epochs ${REWARD_EPOCHS} \
+                    --wandb_project "${WANDB_PROJECT}" \
+                    --reward_axes "${REWARD_AXES}" \
+                    ${N_PAIRS_FLAG}
+            fi
         else
             echo "=== Iter ${ITER} Step B: SKIPPED (RESUME_FROM_PHASE=${RESUME_FROM_PHASE} > ${STEP_B_PHASE}) — reusing existing scores at ${ITER_REWARD_DIR}/scores.json ==="
         fi

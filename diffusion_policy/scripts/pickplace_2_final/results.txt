@@ -3,6 +3,11 @@
     https://wandb.ai/memory_rl/pickplace_2obj_fixed_single_pref/runs/x9reqc0h
     https://wandb.ai/memory_rl/pickplace_2obj_fixed_single_pref/runs/02zr2bwz?nw=nwusermarcelto
 
+    "single matching labels":
+    https://wandb.ai/memory_rl/pickplace_2obj_fixed_single_pref_matching/runs/hzybibvh?nw=nwusermarcelto
+    https://wandb.ai/memory_rl/pickplace_2obj_fixed_single_pref_matching/runs/4xe81ga1
+    https://wandb.ai/memory_rl/pickplace_2obj_fixed_single_pref_matching/runs/mn9s8pk5
+    
     "rhp": https://wandb.ai/memory_rl/pickplace_2obj_fixed_rhp/runs/3q3g3y4w
     https://wandb.ai/memory_rl/pickplace_2obj_fixed_rhp/runs/j1vfkctn?nw=nwusermarcelto
     https://wandb.ai/memory_rl/pickplace_2obj_fixed_rhp/runs/sfc28dfs
@@ -20,6 +25,12 @@
 
     "awr": https://wandb.ai/memory_rl/pickplace_2obj_fixed_awr/runs/ojgz1u10?nw=nwusermarcelto
     https://wandb.ai/memory_rl/pickplace_2obj_fixed_awr/runs/5p2hhvua
+
+    "recap":
+    https://wandb.ai/memory_rl/pickplace_2obj_fixed_recap/runs/k6u1uhlt?nw=nwusermarcelto
+    https://wandb.ai/memory_rl/pickplace_2obj_fixed_recap/runs/ger4w2ej?nw=nwusermarcelto
+    https://wandb.ai/memory_rl/pickplace_2obj_fixed_recap/runs/gjnejhv2
+    
 }
 
 "low number of pairs and raw score": {

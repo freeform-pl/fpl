@@ -99,6 +99,37 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
         rollout_z = np.array(scores_data['rollout_scores_zscore'], dtype=np.float32)  # (N_rollout, K)
         demo_z = np.array(scores_data['demo_scores_zscore'], dtype=np.float32)  # (N_demo, K)
 
+        # Optional per-step conditioning (e.g., RECAP-style value-function
+        # advantages). Stored as a list of lists per episode — variable length.
+        # If present, each episode is conditioned step-wise rather than with a
+        # broadcast scalar. Otherwise we fall back to the per-episode path.
+        rollout_z_perstep_raw = scores_data.get('rollout_scores_zscore_perstep')
+        demo_z_perstep_raw = scores_data.get('demo_scores_zscore_perstep')
+        self.has_perstep_scores = (
+            rollout_z_perstep_raw is not None and demo_z_perstep_raw is not None)
+        if self.has_perstep_scores:
+            rollout_z_perstep = [np.asarray(seq, dtype=np.float32)
+                                 for seq in rollout_z_perstep_raw]
+            demo_z_perstep = [np.asarray(seq, dtype=np.float32)
+                              for seq in demo_z_perstep_raw]
+            # Per-step entries are stored as 1-D when K=1; reshape to (L, K).
+            def _to_2d(seqs, k):
+                out = []
+                for s in seqs:
+                    if s.ndim == 1:
+                        s = s.reshape(-1, 1) if k == 1 else s.reshape(-1, k)
+                    out.append(s)
+                return out
+            k_dim = rollout_z.shape[1] if rollout_z.size else demo_z.shape[1]
+            rollout_z_perstep = _to_2d(rollout_z_perstep, k_dim)
+            demo_z_perstep = _to_2d(demo_z_perstep, k_dim)
+            print(f"[RewardConditionedLowdimDataset] Detected per-step scores "
+                  f"(value-function mode): K={k_dim}, "
+                  f"rollouts={len(rollout_z_perstep)} demos={len(demo_z_perstep)}")
+        else:
+            rollout_z_perstep = None
+            demo_z_perstep = None
+
         # Clip to [-1, 1] always (matches the reward model's output range
         # and keeps the conditioning input bounded). Round to 0.1 buckets
         # only when round_scores=True (or forced by discrete_conditioning,
@@ -112,6 +143,12 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
             if do_round:
                 demo_z = np.round(demo_z * 10) / 10
             demo_z = np.clip(demo_z, -1.0, 1.0)
+        if self.has_perstep_scores:
+            for arr in rollout_z_perstep + demo_z_perstep:
+                if do_round:
+                    np.round(arr * 10, out=arr)
+                    arr /= 10.0
+                np.clip(arr, -1.0, 1.0, out=arr)
 
         # Infer num_reward_dims from scores file
         if num_reward_dims is None:
@@ -167,13 +204,35 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
                     obs_i = r_obs[i, :L_obs].astype(np.float32)
                     act_i = r_actions[i, :L_act].astype(np.float32)
 
-                    # Augment obs with reward conditioning (same for all timesteps)
-                    reward_vals = rollout_z[rollout_offset + i]  # (K,)
-                    if discrete_conditioning:
-                        cond_vec = scores_to_onehot(reward_vals, n_cond_bins)
+                    # Per-step path: each timestep gets its own conditioning
+                    # value (e.g., A_t for the RECAP value function). The
+                    # per-step array can be slightly shorter than L_obs (e.g.,
+                    # final-step advantage was synthesized to match obs length
+                    # so this normally just slices). If shorter, repeat the
+                    # last value to fill the gap; if longer, truncate.
+                    if self.has_perstep_scores:
+                        seq = rollout_z_perstep[rollout_offset + i]  # (L_seq, K)
+                        if len(seq) >= L_obs:
+                            seq_use = seq[:L_obs]
+                        elif len(seq) > 0:
+                            pad = np.broadcast_to(seq[-1:], (L_obs - len(seq), seq.shape[1])).copy()
+                            seq_use = np.concatenate([seq, pad], axis=0)
+                        else:
+                            seq_use = np.zeros((L_obs, rollout_z.shape[1]), dtype=np.float32)
+                        if discrete_conditioning:
+                            reward_aug = np.stack(
+                                [scores_to_onehot(seq_use[t], n_cond_bins)
+                                 for t in range(L_obs)], axis=0)
+                        else:
+                            reward_aug = seq_use.astype(np.float32)
                     else:
-                        cond_vec = reward_vals
-                    reward_aug = np.broadcast_to(cond_vec, (L_obs, conditioning_dims)).copy()
+                        # Augment obs with reward conditioning (same for all timesteps)
+                        reward_vals = rollout_z[rollout_offset + i]  # (K,)
+                        if discrete_conditioning:
+                            cond_vec = scores_to_onehot(reward_vals, n_cond_bins)
+                        else:
+                            cond_vec = reward_vals
+                        reward_aug = np.broadcast_to(cond_vec, (L_obs, conditioning_dims)).copy()
                     obs_aug = np.concatenate([obs_i, reward_aug], axis=-1)
 
                     L = min(len(obs_aug), L_act)
@@ -225,12 +284,28 @@ class RewardConditionedLowdimDataset(BaseLowdimDataset):
                 act_i = act_i[:L]
 
                 # Augment obs with demo reward conditioning
-                reward_vals = demo_z[i]
-                if discrete_conditioning:
-                    cond_vec = scores_to_onehot(reward_vals, n_cond_bins)
+                if self.has_perstep_scores:
+                    seq = demo_z_perstep[i]
+                    if len(seq) >= L:
+                        seq_use = seq[:L]
+                    elif len(seq) > 0:
+                        pad = np.broadcast_to(seq[-1:], (L - len(seq), seq.shape[1])).copy()
+                        seq_use = np.concatenate([seq, pad], axis=0)
+                    else:
+                        seq_use = np.zeros((L, demo_z.shape[1]), dtype=np.float32)
+                    if discrete_conditioning:
+                        reward_aug = np.stack(
+                            [scores_to_onehot(seq_use[t], n_cond_bins)
+                             for t in range(L)], axis=0)
+                    else:
+                        reward_aug = seq_use.astype(np.float32)
                 else:
-                    cond_vec = reward_vals
-                reward_aug = np.broadcast_to(cond_vec, (L, conditioning_dims)).copy()
+                    reward_vals = demo_z[i]
+                    if discrete_conditioning:
+                        cond_vec = scores_to_onehot(reward_vals, n_cond_bins)
+                    else:
+                        cond_vec = reward_vals
+                    reward_aug = np.broadcast_to(cond_vec, (L, conditioning_dims)).copy()
                 obs_aug = np.concatenate([obs_i, reward_aug], axis=-1)
 
                 episode = {

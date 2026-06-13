@@ -1,0 +1,14 @@
+qwen_open_cum
+https://wandb.ai/memory_rl/reward_learning/runs/4wypdd2b/overview
+https://wandb.ai/memory_rl/reward_learning/runs/5da9en3a/overview
+https://wandb.ai/memory_rl/reward_learning/runs/ynz1sogl
+
+qwen_open
+https://wandb.ai/memory_rl/reward_learning/runs/1b4du4vf/overview
+https://wandb.ai/memory_rl/reward_learning/runs/3sw0b7mz/overview
+https://wandb.ai/memory_rl/reward_learning/runs/v9cljsqm/overview
+
+qwen_discounted
+https://wandb.ai/memory_rl/reward_learning/runs/rh034trd/overview
+https://wandb.ai/memory_rl/reward_learning/runs/mrz22ma1/overview
+https://wandb.ai/memory_rl/reward_learning/runs/rqed9km2/overview

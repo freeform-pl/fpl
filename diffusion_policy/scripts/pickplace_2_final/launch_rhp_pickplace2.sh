@@ -80,5 +80,5 @@ export N_ITERATIONS=3
 export N_ITER_ROLLOUTS=200
 export CONDITIONING_TARGETS="0.8,-0.8,-0.8,0.8,0.8;0.8,0.8,-0.8,0.8,0.8;0.8,0.8,0.8,0.8,0.8"
 
-export RESUME_FROM_PHASE=7
+export RESUME_FROM_PHASE=5
 bash scripts/run_pipeline_pickplace.sh

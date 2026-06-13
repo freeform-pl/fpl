@@ -38,7 +38,7 @@ export COND_POLICY_EPOCHS=1500
 # YAML defaults (batch=1024, lr=2e-4) — matches pickplace_2_final RHP.
 # Training seed (Phase 4 conditioned policy). Same value applied to
 # `training.seed` AND `task.dataset.seed`.
-export TRAINING_SEED=62
+export TRAINING_SEED=83
 # Conditioning-noise augmentation. Uniform [-AUGMENT_SCORE, +AUGMENT_SCORE]
 # applied to the appended reward dims at sample time so the policy doesn't
 # overfit to specific bucket centres.
@@ -62,5 +62,5 @@ export N_ITER_ROLLOUTS=200
 export CONDITIONING_TARGETS="0.5,0.9;0.6,0.9;0.7,0.9;0.8,0.9;0.9,0.9"
 
 # Phase 3 trains the reward model in THIS pipeline dir.
-export RESUME_FROM_PHASE=7
+export RESUME_FROM_PHASE=5
 bash scripts/run_pipeline_slow_fast.sh

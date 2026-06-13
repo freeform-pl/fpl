@@ -9,6 +9,7 @@ Same as RobomimicLowdimRunner but:
 import os
 import re
 import sys
+import json
 import numpy as np
 import torch
 import collections
@@ -639,6 +640,43 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
                 log_data[prefix + 'mean_first_success_step_left'] = np.mean(prefix_first_success_step_left[prefix])
             if prefix_first_success_step_right[prefix]:
                 log_data[prefix + 'mean_first_success_step_right'] = np.mean(prefix_first_success_step_right[prefix])
+
+        # Dump per-rollout first-success step lists. Each call to run() (one
+        # per eval condition) appends a JSON line to per_rollout_steps.jsonl
+        # in self.output_dir so downstream analysis can recover individual
+        # rollout values (only the means are otherwise persisted).
+        try:
+            tr = getattr(self, 'target_rewards', None)
+            if hasattr(tr, 'tolist'):
+                tr_serializable = [float(x) for x in tr.tolist()]
+            elif tr is None:
+                tr_serializable = None
+            else:
+                tr_serializable = [float(x) for x in list(tr)]
+
+            prefixes_out = {}
+            for prefix in prefix_success.keys():
+                prefixes_out[prefix] = {
+                    'first_success_step_left':  [int(x) for x in prefix_first_success_step_left[prefix]],
+                    'first_success_step_right': [int(x) for x in prefix_first_success_step_right[prefix]],
+                    'first_success_step':       [int(x) for x in prefix_first_success_step[prefix]],
+                }
+
+            out_dir = getattr(self, 'output_dir', None)
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
+                jsonl_path = os.path.join(out_dir, 'per_rollout_steps.jsonl')
+                with open(jsonl_path, 'a') as _f:
+                    _f.write(json.dumps({
+                        'target_rewards': tr_serializable,
+                        'prefixes': prefixes_out,
+                    }) + '\n')
+                print(f"[runner] per-rollout steps dumped to {jsonl_path} "
+                      f"(target_rewards={tr_serializable})")
+            else:
+                print("[runner] self.output_dir not set; skipping per-rollout dump")
+        except Exception as _e:
+            print(f"[runner] failed to dump per-rollout steps: {_e}")
 
         # Per-axis logging for the slow_fast (twopeg) task — same shape as the
         # PickPlace branch: compute each reward axis on every rollout's obs
