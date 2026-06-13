@@ -69,6 +69,5 @@ python main.py \
     --equal_weight 0.0 \
     --preload --preload_offsets 10 \
     --eval_interval 50 --vis_interval 999999 --log_interval 1 --save_interval 50 \
-    --preferences_dir "${DATA_AM208}/preferences_setup" \
     --cross_preferences_dir "${DATA_ABHIJNYA}/cross_preferences_setup,${DATA_AM208}/cross_preferences_setup" \
     --task setup_table

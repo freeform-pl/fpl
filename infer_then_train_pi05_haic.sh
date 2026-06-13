@@ -40,13 +40,75 @@ fi
 OPENPI_DIR="$REWARD_LEARNING_DIR/openpi"
 OPENPI_PY="$OPENPI_DIR/.venv/bin/python"
 
-CKPT=exp/2026-05-21_01-11-51_qwen_open_j78697/checkpoints/step002000.pt
-RUN_TAG=2026-05-21_01-11-51_qwen_open_j78697_2000
-OUTPUT_SUBDIR=plate_toast_iter0_multi_qwen
+# CKPT=exp/2026-05-22_21-34-13_qwen_open_j79058/checkpoints/step005000.pt
+# RUN_TAG=2026-05-22_21-34-13_qwen_open_j79058_5000
+# OUTPUT_SUBDIR=plate_toast_iter1_multi_qwen
+# DECIMAL_PLACES=1
+# ITER_TAG=iter1_5000
+# TASK=plate_toast
+# TASK_PROMPT="put the toast in the plate"
+
+# CKPT=exp/2026-05-22_21-34-13_qwen_open_j79058/checkpoints/step005000.pt
+# RUN_TAG=2026-05-22_21-34-13_qwen_open_j79058_5000
+# OUTPUT_SUBDIR=plate_toast_iter1_single_qwen
+# DECIMAL_PLACES=1
+# ITER_TAG=iter1_5000
+# TASK=single
+# TASK_PROMPT="put the toast in the plate"
+
+# CKPT=exp/2026-05-21_18-26-29_qwen_open_j78841/checkpoints/step001700.pt
+# RUN_TAG=2026-05-21_18-26-29_qwen_open_j78841_1700
+# OUTPUT_SUBDIR=pick_and_place_iter1_multi_qwen_v3
+# DECIMAL_PLACES=1
+# ITER_TAG=iter1_1700_new
+# TASK=cube_in_three_bowls
+# TASK_PROMPT="put the cube in the bowl"
+
+# CKPT=exp/2026-06-02_09-17-19_qwen_open_j81561/checkpoints/step001500.pt
+# RUN_TAG=2026-06-02_09-17-19_qwen_open_j81561_1500
+# OUTPUT_SUBDIR=pick_and_place_iter1_single_matching
+# DECIMAL_PLACES=1
+# ITER_TAG=iter1_single_matching_1500
+# TASK=single
+# TASK_PROMPT="put the cube in the bowl"
+
+
+
+# CKPT=exp/2026-05-26_20-51-20_qwen_discounted_j79792/checkpoints/step005000.pt
+# RUN_TAG=2026-05-26_20-51-20_qwen_discounted_j79792
+# OUTPUT_SUBDIR=fold_the_shorts_iter0_multi
+# DECIMAL_PLACES=1
+# ITER_TAG=iter0_5000
+# TASK=fold_pants
+# TASK_PROMPT="fold the shorts"
+
+CKPT=exp/2026-06-03_22-56-00_qwen_open_j81999/checkpoints/step002000.pt
+RUN_TAG=2026-06-03_22-56-00_qwen_open_j81999
+OUTPUT_SUBDIR=fold_the_shorts_single_matching
 DECIMAL_PLACES=1
-ITER_TAG=iter0_2000
-TASK=plate_toast
-TASK_PROMPT="put the toast in the plate"
+ITER_TAG=iter_single_matchin_2000
+TASK=single
+TASK_PROMPT="fold the shorts"
+
+# CKPT=exp/2026-06-01_08-49-04_qwen_open_j81218/checkpoints/step003000.pt
+# RUN_TAG=2026-06-01_08-49-04_qwen_open_j81218_3000_setup_single_matching
+# OUTPUT_SUBDIR=setup_table_single_matching
+# DECIMAL_PLACES=1
+# ITER_TAG=iter1_3000
+# TASK=single
+# TASK_PROMPT="set up the table"
+
+# CKPT=exp/2026-06-01_17-51-27_qwen_open_j81537/checkpoints/step001500.pt
+# RUN_TAG=2026-06-01_17-51-27_qwen_open_j81537_1500_setup_single_matching
+# OUTPUT_SUBDIR=burger_single_matching
+# DECIMAL_PLACES=1
+# ITER_TAG=iter1_1500
+# TASK=single
+# TASK_PROMPT="place the toast"
+
+
+
+
 
 # CKPT=exp/2026-05-17_00-26-30_qwen_open_j77850/checkpoints/step006000.pt
 # RUN_TAG=2026-05-17_00-26-30_qwen_open_j77850_6000_fixed_full150
@@ -83,17 +145,43 @@ echo "=== [infer] Python: $(which python) ==="
 #     --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
 #     --task "$TASK"
 
-# # python infer.py \
-# #     --ckpt "$CKPT" \
-# #     --preferences_dir "${DATA_AM208}/preferences_setup,${DATA_AM208}/demos/setup,${DATA_ABHIJNYA}/demos/table_setup" \
-# #     --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}"
+# python infer.py \
+#     --ckpt "$CKPT" \
+#     --preferences_dir "${DATA_ABHIJNYA}/preferences_burger,${DATA_AM208}/demos/burger" \
+#     --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
+#     --task "$TASK"
 
-# "$OPENPI_PY" convert_custom_droid_to_lerobot.py \
-#     --args.scores_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
-#     --args.repo_name "$DATASET_REPO_ID" \
-#     --args.task_prompt "$TASK_PROMPT" \
-#     --args.score_type standardized \
-#     --args.decimal_places "$DECIMAL_PLACES"
+# python infer.py \
+#     --ckpt "$CKPT" \
+#     --preferences_dir "${DATA_AM208}/preferences_pick_and_place,${DATA_AM208}/demos/pick_and_place" \
+#     --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
+#     --task "$TASK"
+
+python infer.py \
+    --ckpt "$CKPT" \
+    --preferences_dir "${DATA_ABHIJNYA}/demos/test,${DATA_AM208}/demos/test" \
+    --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
+    --task "$TASK"
+
+# python infer.py \
+#     --ckpt "$CKPT" \
+#     --preferences_dir "${DATA_AM208}/preferences_setup,${DATA_AM208}/demos/setup,${DATA_ABHIJNYA}/demos/table_setup" \
+#     --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
+#     --task "$TASK"
+
+# python infer.py \
+#     --ckpt "$CKPT" \
+#     --preferences_dir "${DATA_ABHIJNYA}/preferences_burger,${DATA_AM208}/demos/burger" \
+#     --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
+#     --task "$TASK"
+
+
+"$OPENPI_PY" convert_custom_droid_to_lerobot.py \
+    --args.scores_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
+    --args.repo_name "$DATASET_REPO_ID" \
+    --args.task_prompt "$TASK_PROMPT" \
+    --args.score_type standardized \
+    --args.decimal_places "$DECIMAL_PLACES"
 
 conda deactivate
 

@@ -467,7 +467,7 @@ def main():
             print(f"[task=auto] Detected {len(preference_keys)} preference keys: {preference_keys}",
                   flush=True)
     else:
-        preference_keys = TASKS[args.task]
+        preference_keys = [k.lower() for k in TASKS[args.task]]
 
     if args.debug_dummy:
         if is_main:
@@ -603,21 +603,17 @@ def main():
                 print(f"[cross_preferences] Episode lengths ({len(arr)} rollouts): "
                       f"min={arr.min()}  max={arr.max()}  "
                       f"mean={arr.mean():.1f}  median={np.median(arr):.1f}  std={arr.std():.1f}")
-            if skip_preferences:
-                # No regular preferences — split cross samples for train/val.
-                rng = np.random.default_rng(args.seed)
-                perm = rng.permutation(len(cross_samples))
-                n_val = max(1, int(len(cross_samples) * args.val_fraction)) if cross_samples else 0
-                val_idx   = set(perm[:n_val].tolist())
-                train_cross = [cross_samples[i] for i in range(len(cross_samples)) if i not in val_idx]
-                val_cross   = [cross_samples[i] for i in range(len(cross_samples)) if i in val_idx]
-                train_ds.samples.extend(train_cross)
-                val_ds.samples.extend(val_cross)
-                if is_main:
-                    print(f"[cross_preferences] Split into {len(train_cross)} train / "
-                          f"{len(val_cross)} val pairs")
-            else:
-                train_ds.samples.extend(cross_samples)
+            rng = np.random.default_rng(args.seed)
+            perm = rng.permutation(len(cross_samples))
+            n_val = max(1, int(len(cross_samples) * args.val_fraction)) if cross_samples else 0
+            val_idx   = set(perm[:n_val].tolist())
+            train_cross = [cross_samples[i] for i in range(len(cross_samples)) if i not in val_idx]
+            val_cross   = [cross_samples[i] for i in range(len(cross_samples)) if i in val_idx]
+            train_ds.samples.extend(train_cross)
+            val_ds.samples.extend(val_cross)
+            if is_main:
+                print(f"[cross_preferences] Split into {len(train_cross)} train / "
+                      f"{len(val_cross)} val pairs")
 
     if not args.debug_dummy:
         all_paths = set()

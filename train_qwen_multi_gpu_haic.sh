@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=models
-#SBATCH --partition=yejin-lo
+#SBATCH --partition=hai
 #SBATCH --qos=models
 #SBATCH --time=120:00:00
 #SBATCH --nodes=1
@@ -87,6 +87,69 @@ MASTER_PORT=$((20000 + RANDOM % 20000))
 #     --cross_preferences_dir "${DATA_ABHIJNYA}/droid-robot/cross_preferences_setup,${DATA_AM208}/droid-robot/cross_preferences_setup" \
 #     --task setup_table
 
+# torchrun \
+#     --standalone \
+#     --nnodes=1 \
+#     --nproc_per_node=$NUM_GPUS \
+#     --master_port=$MASTER_PORT \
+#     main.py \
+#     --model qwen_open \
+#     --stride 7 --seq_len 40 --img_size 128 \
+#     --batch_size 16 --epochs 1000 \
+#     --lr 1e-5 \
+#     --equal_weight 0.0 \
+#     --preload --preload_offsets 10 \
+#     --eval_interval 50 --vis_interval 999999 --small_vis_interval 200 --log_interval 1 --save_interval 1000 \
+#     --preferences "${DATA_AM208}/droid-robot/preferences_burger" \
+#     --cross_preferences_dir "${DATA_AM208}/droid-robot/cross_preferences_burger,${DATA_ABHIJNYA}/droid-robot/cross_preferences_burger" \
+#     --task auto
+
+torchrun \
+    --standalone \
+    --nnodes=1 \
+    --nproc_per_node=$NUM_GPUS \
+    --master_port=$MASTER_PORT \
+    main.py \
+    --model qwen_open_cum \
+    --stride 15 --seq_len 80 --img_size 128 \
+    --batch_size 16 --epochs 1000 \
+    --lr 1e-5 \
+    --equal_weight 0.0 \
+    --preload --preload_offsets 10 \
+    --eval_interval 50 --vis_interval 999999 --small_vis_interval 200 --log_interval 1 --save_interval 1000 \
+    --preferences_dir "${DATA_AM208}/droid-robot/preferences" \
+    --cross_preferences_dir "${DATA_ABHIJNYA}/droid-robot/cross_preferences,${DATA_AM208}/droid-robot/cross_preferences" \
+    --task auto
+
+# torchrun \
+#     --standalone \
+#     --nnodes=1 \
+#     --nproc_per_node=$NUM_GPUS \
+#     --master_port=$MASTER_PORT \
+#     main.py \
+#     --model qwen_discounted \
+#     --stride 15 --seq_len 80 --img_size 128 \
+#     --batch_size 16 --epochs 1000 \
+#     --lr 1e-5 \
+#     --equal_weight 0.0 \
+#     --preload --preload_offsets 10 \
+#     --eval_interval 50 --vis_interval 999999 --small_vis_interval 200 --log_interval 1 --save_interval 4000 \
+#     --preferences_dir "${DATA_AM208}/droid-robot/preferences" \
+#     --cross_preferences_dir "${DATA_ABHIJNYA}/droid-robot/cross_preferences,${DATA_AM208}/droid-robot/cross_preferences" \
+#     --task auto
+
+
+
+# python main.py \
+#     --model qwen_open \
+#     --stride 20 --seq_len 20 --img_size 128 \
+#     --batch_size 32 --epochs 1000 \
+#     --lr 1e-5 \
+#     --equal_weight 0.0 \
+#     --preload --preload_offsets 10 \
+#     --eval_interval 50 --vis_interval 999999 --small_vis_interval 200 --log_interval 1 --save_interval 500 \
+#     --cross_preferences_dir "${DATA_AM208}/droid-robot/cross_preferences_burger,${DATA_ABHIJNYA}/droid-robot/cross_preferences_burger" \
+#     --task auto
 
 # torchrun \
 #     --standalone \
@@ -106,17 +169,17 @@ MASTER_PORT=$((20000 + RANDOM % 20000))
 #     --task setup_table
 
 
-torchrun \
-    --standalone \
-    --nnodes=1 \
-    --nproc_per_node=$NUM_GPUS \
-    --master_port=$MASTER_PORT \
-    main.py \
-    --model qwen_open \
-    --stride 5 --seq_len 80 --img_size 128 \
-    --batch_size 8 --epochs 1000 \
-    --lr 1e-5 \
-    --equal_weight 0.0 \
-    --preload --preload_offsets 5 \
-    --eval_interval 50 --vis_interval 999999 --small_vis_interval 200 --log_interval 1 --save_interval 1000 \
-    --cross_preferences_dir "${DATA_AM208}/droid-robot/cross_preferences_burger"
+# torchrun \
+#     --standalone \
+#     --nnodes=1 \
+#     --nproc_per_node=$NUM_GPUS \
+#     --master_port=$MASTER_PORT \
+#     main.py \
+#     --model qwen_open \
+#     --stride 5 --seq_len 80 --img_size 128 \
+#     --batch_size 8 --epochs 1000 \
+#     --lr 1e-5 \
+#     --equal_weight 0.0 \
+#     --preload --preload_offsets 5 \
+#     --eval_interval 50 --vis_interval 999999 --small_vis_interval 200 --log_interval 1 --save_interval 1000 \
+#     --cross_preferences_dir "${DATA_AM208}/droid-robot/cross_preferences_burger"

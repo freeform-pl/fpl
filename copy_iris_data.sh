@@ -41,8 +41,12 @@ PAIRS=(
     "/iris/u/am208/droid-robot/demos/setup/                   $DEST/am208/droid-robot/demos/setup/"
     "/iris/u/am208/droid-robot/demos/burger/                  $DEST/am208/droid-robot/demos/burger/"
     "/iris/u/am208/droid-robot/cross_preferences_pick_and_place/    $DEST/am208/droid-robot/cross_preferences_pick_and_place/"
-    "/iris/u/am208/droid-robot/preferences_pick_and_place     $DEST/am208/droid-robot/preferences_pick_and_place/"
-    "/iris/u/am208/droid-robot/demos/pick_and_place           $DEST/am208/droid-robot/demos/pick_and_place/"
+    "/iris/u/abhijnya/droid-robot/cross_preferences_pick_and_place/    $DEST/abhijnya/droid-robot/cross_preferences_pick_and_place/"
+    "/iris/u/am208/droid-robot/preferences_pick_and_place/     $DEST/am208/droid-robot/preferences_pick_and_place/"
+    "/iris/u/am208/droid-robot/demos/pick_and_place/           $DEST/am208/droid-robot/demos/pick_and_place/"
+    "/iris/u/abhijnya/droid-robot/cross_preferences_burger/    $DEST/abhijnya/droid-robot/cross_preferences_burger/"
+    "/iris/u/am208/droid-robot/preferences_burger/             $DEST/am208/droid-robot/preferences_burger/"
+    "/iris/u/abhijnya/droid-robot/cross_preferences_extra/     $DEST/am208/droid-robot/cross_preferences_extra/"
 )
 
 i=1
