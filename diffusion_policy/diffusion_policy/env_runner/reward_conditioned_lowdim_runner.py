@@ -564,7 +564,7 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
             if success:
                 prefix_first_success_step[prefix].append(first_success_step)
 
-            throughput = success / ((first_success_step + 1) / self.max_steps) if success else 0.0
+            throughput = success * 300.0 / first_success_step if (success and first_success_step > 0) else 0.0
             prefix_throughput[prefix].append(throughput)
 
             smoothness = 1.0

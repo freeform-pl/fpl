@@ -400,8 +400,8 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             if success:
                 prefix_first_success_step[prefix].append(first_success_step)
 
-            # --- throughput: success / (time_to_first_success / max_steps) ---
-            throughput = success / ((first_success_step + 1) / self.max_steps) if success else 0.0
+            # --- throughput: success * 300 / time_to_first_success ---
+            throughput = success * 300.0 / first_success_step if (success and first_success_step > 0) else 0.0
             prefix_throughput[prefix].append(throughput)
 
             # --- smoothness --- 0 on failure so the metric only credits
