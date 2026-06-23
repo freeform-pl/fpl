@@ -7,7 +7,7 @@
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=sf_rhp
-#SBATCH --nodelist=iris7,iris8,iris10
+#SBATCH --nodelist=iris7,iris4,iris8,iris10
 #SBATCH --output slurm/%j.out
 
 # RHP baseline for slow_fast — mirrors the pickplace_2_final RHP structure:
@@ -51,15 +51,19 @@ export ROUND_SCORES=False
 export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_every=20 ++training.checkpoint_every=20 ++augment_score=${AUGMENT_SCORE} ++round_scores=${ROUND_SCORES}"
 
 # Eval z-score conditioning.
-export EVAL_Z_POSITIVE="[0.9,0.8]"
-export EVAL_Z_NEGATIVE="[0.9,-0.8]"
+export EVAL_Z_POSITIVE="[-0.9,0.8]"
+export EVAL_Z_NEGATIVE="[-0.9,-0.8]"
+
+# Log a video to wandb for every eval rollout (not just the default 3).
+export N_EVAL_ROLLOUTS=50
+export N_EVAL_VIDEOS=${N_EVAL_ROLLOUTS}
 
 export N_PAIRS=100
 
 # Iterative refinement: speed_reward in [0.5, 0.9], peg_reward fixed at 0.9.
 export N_ITERATIONS=3
 export N_ITER_ROLLOUTS=200
-export CONDITIONING_TARGETS="0.5,0.9;0.6,0.9;0.7,0.9;0.8,0.9;0.9,0.9"
+export CONDITIONING_TARGETS="-0.3,0.9;0.7,0.9;0.7,-0.9;-0.3,-0.9;"
 
 # Phase 3 trains the reward model in THIS pipeline dir.
 export RESUME_FROM_PHASE=5
