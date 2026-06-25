@@ -73,5 +73,5 @@ export EVAL_Z_NEGATIVE="[-0.8,0.7,0.8,0.8,0.8]"
 
 export N_PAIRS=70
 
-export RESUME_FROM_PHASE=5
+export RESUME_FROM_PHASE=0
 bash scripts/run_pipeline_object_rearrangement.sh

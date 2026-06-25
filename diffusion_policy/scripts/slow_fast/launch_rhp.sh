@@ -14,6 +14,7 @@
 # continuous conditioning, augment_score noise, raw z-scores (no rounding),
 # exposed seed/batch/lr knobs.
 # Left peg: speed [1, 4] (fast). Right peg: speed [1, 2] (slow).
+
 export PIPELINE_DIR="pipeline_output_slow_fast_rhp"
 export WANDB_PROJECT="slow_fast_rhp"
 export BASE_POLICY_DIR="base_policy_slow_fast"
@@ -61,5 +62,5 @@ export N_EVAL_VIDEOS=${N_EVAL_ROLLOUTS}
 export N_PAIRS=100
 
 # Phase 3 trains the reward model in THIS pipeline dir.
-export RESUME_FROM_PHASE=5
+export RESUME_FROM_PHASE=0
 bash scripts/run_pipeline_slow_fast.sh
