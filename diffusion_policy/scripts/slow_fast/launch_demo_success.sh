@@ -42,5 +42,5 @@ export EXTRA_BASE_POLICY_OVERRIDES="++training.rollout_every=100 ++training.chec
 
 # Phase 1 trains base policy, Phase 2 collects rollouts, Phase 4 trains
 # demo_success on filtered demos+rollouts. Phase 3 skipped (no reward model).
-export RESUME_FROM_PHASE=4
+export RESUME_FROM_PHASE=1
 bash scripts/run_pipeline_slow_fast.sh

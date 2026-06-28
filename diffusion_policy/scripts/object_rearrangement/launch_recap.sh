@@ -47,5 +47,5 @@ export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_ever
 export EVAL_Z_POSITIVE="[1.0]"
 export EVAL_Z_NEGATIVE="[-1.0]"
 
-export RESUME_FROM_PHASE=4
+export RESUME_FROM_PHASE=1
 bash scripts/run_pipeline_object_rearrangement.sh

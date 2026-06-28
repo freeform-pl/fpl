@@ -35,5 +35,5 @@ export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_ever
 export N_PAIRS=100
 
 # Phase 3 trains reward model; Phase 4 trains AWR policy.
-export RESUME_FROM_PHASE=4
+export RESUME_FROM_PHASE=1
 bash scripts/run_pipeline_slow_fast.sh

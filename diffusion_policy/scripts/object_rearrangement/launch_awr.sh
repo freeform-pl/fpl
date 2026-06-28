@@ -42,5 +42,5 @@ export N_PAIRS=70
 
 # Phase 3 trains the reward model (scores.json) for THIS pipeline dir; phase 4
 # trains the AWR policy off those scores.
-export RESUME_FROM_PHASE=4
+export RESUME_FROM_PHASE=1
 bash scripts/run_pipeline_object_rearrangement.sh

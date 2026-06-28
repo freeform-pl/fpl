@@ -20,8 +20,6 @@ export DISCRETE_CONDITIONING=false
 export USE_VALUE_FUNCTION=true
 export VALUE_FAIL_PENALTY=-100
 
-
-export N_SCRIPTED=200
 export SKIP_ROLLOUTS=true
 
 export SHARED_DATA_DIR="shared_data_slow_fast"
@@ -41,5 +39,5 @@ export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_ever
 export EVAL_Z_POSITIVE="[1.0]"
 export EVAL_Z_NEGATIVE="[-1.0]"
 
-export RESUME_FROM_PHASE=4
+export RESUME_FROM_PHASE=1
 bash scripts/run_pipeline_slow_fast.sh
