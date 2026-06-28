@@ -20,11 +20,8 @@ export BASE_POLICY_DIR="base_policy_slow_fast"
 export IS_CONDITIONED_EVAL=true
 export DISCRETE_CONDITIONING=false
 
-export SPEED_FACTOR_RANGE_LEFT="1 4"
-export SPEED_FACTOR_RANGE_RIGHT="3 4"
 
 # 200 demos, no rollouts (demos-only mode)
-export N_SCRIPTED=200
 export SKIP_ROLLOUTS=true
 
 export SHARED_DATA_DIR="shared_data_slow_fast"
@@ -51,7 +48,7 @@ export ROUND_SCORES=False
 export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_every=20 ++training.checkpoint_every=20 ++augment_score=${AUGMENT_SCORE} ++round_scores=${ROUND_SCORES}"
 
 # Eval z-score conditioning.
-export EVAL_Z_POSITIVE="[-0.9,0.8]"
+export EVAL_Z_POSITIVE="[0.9,0.8]"
 export EVAL_Z_NEGATIVE="[-0.9,-0.8]"
 
 # Log a video to wandb for every eval rollout (not just the default 3).

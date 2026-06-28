@@ -19,11 +19,8 @@ export SKIP_REWARD_MODEL=true
 export SKIP_POLICY_TRAINING=true
 export IS_CONDITIONED_EVAL=false
 
-export SPEED_FACTOR_RANGE_LEFT="1 4"
-export SPEED_FACTOR_RANGE_RIGHT="1 2"
 
 # 200 demos, skip rollout collection but still train base policy.
-export N_SCRIPTED=200
 export SKIP_ROLLOUTS=false
 
 export SHARED_DATA_DIR="shared_data_slow_fast"

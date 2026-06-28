@@ -46,7 +46,7 @@ find_best_ckpt() {
 # ============================================================
 # Configuration
 # ============================================================
-N_SCRIPTED=${N_SCRIPTED:-200}
+N_SCRIPTED=${N_SCRIPTED:-300}
 N_ROLLOUTS=${N_ROLLOUTS:-200}
 N_EVAL_ROLLOUTS=${N_EVAL_ROLLOUTS:-50}
 PIPELINE_DIR=${PIPELINE_DIR:-"pipeline_output_pickplace"}
@@ -89,10 +89,11 @@ BASE_LEARNING_RATE=${BASE_LEARNING_RATE:-}
 TRAINING_SEED=${TRAINING_SEED:-}
 BASE_TRAINING_SEED=${BASE_TRAINING_SEED:-}
 
+
 # Per-axis preference settings
 ORDER_MODE=${ORDER_MODE:-random}                  # canonical | reversed | random
 N_OBJECTS_MIN=${N_OBJECTS_MIN:-1}
-N_OBJECTS_MAX=${N_OBJECTS_MAX:-4}
+N_OBJECTS_MAX=${N_OBJECTS_MAX:-2}
 DROP_MODE=${DROP_MODE:-random}                    # careful | drop | random
 DROP_HEIGHT_MIN=${DROP_HEIGHT_MIN:-0.15}
 DROP_HEIGHT_MAX=${DROP_HEIGHT_MAX:-0.20}
@@ -117,7 +118,7 @@ RELEASE_XY_NOISE=${RELEASE_XY_NOISE:-0.0}
 # Subset of the 4 PickPlace objects to keep in the scene. 4 = full task.
 # 2 = first two in the right-first canonical order (Bread + Can). Inactive
 # objects are cleared out of the bin by the env wrapper.
-N_ACTIVE_OBJECTS=${N_ACTIVE_OBJECTS:-4}
+N_ACTIVE_OBJECTS=${N_ACTIVE_OBJECTS:-2}
 # PickPlace episodes are long (~1300 control steps); a larger action chunk
 # speeds up rollout/eval ~8x. Keep horizon >= n_obs_steps + n_action_steps - 1.
 N_OBS_STEPS=${N_OBS_STEPS:-2}

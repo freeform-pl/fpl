@@ -430,8 +430,10 @@ def create_policy(env, target_peg='random', noise_level=0.0, speed_factor=1.0):
 @click.option('--noise_max', type=float, default=0.12, help='Max noise level (vmax) for bezier curves')
 @click.option('--speed_factor_left', type=float, default=1.0, help='Speed factor for left peg (>1=slower, <1=faster)')
 @click.option('--speed_factor_right', type=float, default=1.0, help='Speed factor for right peg (>1=slower, <1=faster)')
-@click.option('--speed_factor_range_left', type=(float, float), default=None, help='Sample left peg speed uniformly from (min, max)')
-@click.option('--speed_factor_range_right', type=(float, float), default=None, help='Sample right peg speed uniformly from (min, max)')
+@click.option('--speed_factor_range_left', type=(float, float), default=(1.0, 4.0),
+              help='Sample left peg speed uniformly from (min, max). Pass "--speed_factor_range_left 0 0" to disable and fall back to --speed_factor_left.')
+@click.option('--speed_factor_range_right', type=(float, float), default=(3.0, 4.0),
+              help='Sample right peg speed uniformly from (min, max). Pass "--speed_factor_range_right 0 0" to disable and fall back to --speed_factor_right.')
 @click.option('--target_peg', type=click.Choice(['random', 'left', 'right']), default='random', help='Which peg to target (default: random)')
 @click.option('--save_all_videos/--save_some_videos', default=False,
               help='Record an MP4 for every episode vs. just the first 3 (default). '
@@ -444,13 +446,18 @@ def main(output_dir, num_episodes, seed, noise_min, noise_max, speed_factor_left
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
+    # Treat (0, 0) as the explicit disable sentinel — falls back to the
+    # single-value --speed_factor_{left,right} flags.
+    use_range_left = speed_factor_range_left != (0.0, 0.0)
+    use_range_right = speed_factor_range_right != (0.0, 0.0)
+
     print(f"Seed set to: {seed}")
     print(f"Collecting {num_episodes} episodes with target_peg={target_peg}, noise in [{noise_min}, {noise_max}]")
-    if speed_factor_range_left is not None:
+    if use_range_left:
         print(f"Speed factor left: uniform [{speed_factor_range_left[0]}, {speed_factor_range_left[1]}]")
     else:
         print(f"Speed factor left: {speed_factor_left}")
-    if speed_factor_range_right is not None:
+    if use_range_right:
         print(f"Speed factor right: uniform [{speed_factor_range_right[0]}, {speed_factor_range_right[1]}]")
     else:
         print(f"Speed factor right: {speed_factor_right}")
@@ -478,12 +485,12 @@ def main(output_dir, num_episodes, seed, noise_min, noise_max, speed_factor_left
         policy = create_policy(env, target_peg=target_peg, noise_level=noise, speed_factor=1.0)
         # Set speed factor (range or fixed per peg)
         if policy.target_peg == 'left':
-            if speed_factor_range_left is not None:
+            if use_range_left:
                 policy.speed_factor = np.random.uniform(speed_factor_range_left[0], speed_factor_range_left[1])
             else:
                 policy.speed_factor = speed_factor_left
         else:
-            if speed_factor_range_right is not None:
+            if use_range_right:
                 policy.speed_factor = np.random.uniform(speed_factor_range_right[0], speed_factor_range_right[1])
             else:
                 policy.speed_factor = speed_factor_right

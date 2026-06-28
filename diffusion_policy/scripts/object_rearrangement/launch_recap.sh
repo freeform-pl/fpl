@@ -26,22 +26,8 @@ export DISCRETE_CONDITIONING=false
 export USE_VALUE_FUNCTION=true
 export VALUE_FAIL_PENALTY=-100
 
-# 2-object variant: keep Bread + Can in the scene, clear Milk + Cereal.
-export N_ACTIVE_OBJECTS=2
 export EXTRA_POLICY_OVERRIDES="++task.env_runner.max_steps=500"
 
-# Preference-axis sampling for scripted demos (matches the other PP2 launchers).
-export ORDER_MODE=random
-export N_OBJECTS_MIN=1
-export N_OBJECTS_MAX=2
-export DROP_MODE=random
-export DROP_HEIGHT_MIN=0.15
-export DROP_HEIGHT_MAX=0.20
-export CAREFUL_HEIGHT=0.04
-export NOISE_MIN=0.0
-export NOISE_MAX=0.05
-
-export N_SCRIPTED=300
 export SKIP_ROLLOUTS=true
 
 export SHARED_DATA_DIR="shared_data_object_rearrangement"

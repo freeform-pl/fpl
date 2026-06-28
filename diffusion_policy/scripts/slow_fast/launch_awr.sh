@@ -20,10 +20,7 @@ export COND_CONFIG="train_awr_flow_transformer_lowdim_workspace.yaml"
 export IS_CONDITIONED_EVAL=false
 export DISCRETE_CONDITIONING=false
 
-export SPEED_FACTOR_RANGE_LEFT="1 4"
-export SPEED_FACTOR_RANGE_RIGHT="1 2"
 
-export N_SCRIPTED=200
 export SKIP_ROLLOUTS=true
 
 export SHARED_DATA_DIR="shared_data_slow_fast"

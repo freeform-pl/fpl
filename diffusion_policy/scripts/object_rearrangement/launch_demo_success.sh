@@ -38,8 +38,6 @@ export CAREFUL_HEIGHT=0.04
 export NOISE_MIN=0.0
 export NOISE_MAX=0.05
 
-# 1000 demos, no rollouts
-export N_SCRIPTED=500
 export SKIP_ROLLOUTS=false
 
 # export SHARED_DATA_DIR="shared_data_object_rearrangement"

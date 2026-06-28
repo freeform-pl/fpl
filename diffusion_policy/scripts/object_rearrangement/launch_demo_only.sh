@@ -21,22 +21,7 @@ export SKIP_REWARD_MODEL=true
 export SKIP_POLICY_TRAINING=true
 export IS_CONDITIONED_EVAL=false
 
-# 2-object variant: keep Bread + Can in the scene, clear Milk + Cereal.
-export N_ACTIVE_OBJECTS=2
 
-# Preference-axis sampling for scripted demos (only used if Phase 0 runs)
-export ORDER_MODE=random
-export N_OBJECTS_MIN=1
-export N_OBJECTS_MAX=2
-export DROP_MODE=random
-export DROP_HEIGHT_MIN=0.15
-export DROP_HEIGHT_MAX=0.20
-export CAREFUL_HEIGHT=0.04
-export NOISE_MIN=0.0
-export NOISE_MAX=0.05
-
-# 1000 demos (already collected, just defines metadata).
-export N_SCRIPTED=300
 # SKIP_ROLLOUTS=false keeps the BASE_CKPT discovery block active so Phase 5
 # can find the pre-trained base policy. Phase 2 itself is skipped by RESUME.
 export SKIP_ROLLOUTS=false

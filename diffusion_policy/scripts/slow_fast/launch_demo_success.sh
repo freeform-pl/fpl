@@ -21,10 +21,7 @@ export SKIP_REWARD_MODEL=true
 export IS_CONDITIONED_EVAL=false
 export DISCRETE_CONDITIONING=true
 
-export SPEED_FACTOR_RANGE_LEFT="1 4"
-export SPEED_FACTOR_RANGE_RIGHT="1 2"
 
-export N_SCRIPTED=200
 # demo_success needs Phase 2 rollouts to filter successes; keep enabled.
 export SKIP_ROLLOUTS=false
 

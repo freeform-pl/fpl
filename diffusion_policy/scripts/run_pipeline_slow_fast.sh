@@ -92,18 +92,6 @@ BASE_TRAINING_SEED=${BASE_TRAINING_SEED:-}
 NOISE_MIN=${NOISE_MIN:-0.0}
 NOISE_MAX=${NOISE_MAX:-0.12}
 
-# Speed factors: left peg = fast, right peg = slow
-SPEED_FACTOR_LEFT=${SPEED_FACTOR_LEFT:-0.6}
-SPEED_FACTOR_RIGHT=${SPEED_FACTOR_RIGHT:-4.0}
-
-# Speed factor ranges (if set, override fixed factors with uniform sampling)
-SPEED_FACTOR_RANGE_LEFT=${SPEED_FACTOR_RANGE_LEFT:-}
-SPEED_FACTOR_RANGE_RIGHT=${SPEED_FACTOR_RANGE_RIGHT:-}
-
-# Speed range: if set, sample speed uniformly from [min, max] for both pegs (overrides per-peg factors)
-SPEED_RANGE_MIN=${SPEED_RANGE_MIN:-}
-SPEED_RANGE_MAX=${SPEED_RANGE_MAX:-}
-
 # Per-axis eval conditioning targets (scores normalized to [-1, 1])
 EVAL_Z_POSITIVE=${EVAL_Z_POSITIVE:-"[1.0,1.0,1.0]"}
 EVAL_Z_NEGATIVE=${EVAL_Z_NEGATIVE:-}
@@ -131,20 +119,12 @@ SCORES_PATH="${REWARD_DIR}/scores.json"
 # ============================================================
 if [ ${RESUME_FROM_PHASE} -le 0 ]; then
     echo "=== Phase 0: Collecting ${N_SCRIPTED} scripted demos (left=fast, right=slow) ==="
-    SPEED_ARGS="--speed_factor_left ${SPEED_FACTOR_LEFT} --speed_factor_right ${SPEED_FACTOR_RIGHT}"
-    if [ -n "${SPEED_FACTOR_RANGE_LEFT}" ]; then
-        SPEED_ARGS="${SPEED_ARGS} --speed_factor_range_left ${SPEED_FACTOR_RANGE_LEFT}"
-    fi
-    if [ -n "${SPEED_FACTOR_RANGE_RIGHT}" ]; then
-        SPEED_ARGS="${SPEED_ARGS} --speed_factor_range_right ${SPEED_FACTOR_RANGE_RIGHT}"
-    fi
     python scripts/collect_initial_scripted_rollouts.py \
         -o "${SCRIPTED_DIR}" \
         -n ${N_SCRIPTED} \
         --noise_min ${NOISE_MIN} \
         --noise_max ${NOISE_MAX} \
-        --target_peg ${TARGET_PEG} \
-        ${SPEED_ARGS}
+        --target_peg ${TARGET_PEG}
 else
     echo "=== Phase 0: SKIPPED (resuming from phase ${RESUME_FROM_PHASE}) ==="
 fi
