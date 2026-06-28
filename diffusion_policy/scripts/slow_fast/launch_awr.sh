@@ -1,13 +1,10 @@
 #!/bin/bash
-#SBATCH --account=iris
-#SBATCH --partition=iris-hi
 #SBATCH --time=48:00:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=sf_awr
-#SBATCH --nodelist=iris7,iris8,iris10
 #SBATCH --output slurm/%j.out
 
 # AWR baseline for slow_fast. Uses the same 2-D reward axes as RHP but the

@@ -1,31 +1,13 @@
 #!/bin/bash
-#SBATCH --account=iris
-#SBATCH --partition=iris-hi
 #SBATCH --time=48:00:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=pickplace_pipeline
-#SBATCH --nodelist=iris9,iris10
 #SBATCH --output slurm/%j.out
 
 set -e
-
-if [ -d /iris/u/marcelto/miniconda3 ]; then
-    CONDA_ROOT=/iris/u/marcelto/miniconda3
-elif [ -d /hai/scratch/marcelto/miniconda3 ]; then
-    CONDA_ROOT=/hai/scratch/marcelto/miniconda3
-else
-    echo "ERROR: could not find miniconda on /iris or /hai" >&2
-    exit 1
-fi
-eval "$(${CONDA_ROOT}/bin/conda shell.bash hook)"
-
-export MUJOCO_PATH=~/.mujoco/mujoco210
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/.mujoco/mujoco210/bin
-
-conda activate robodiffrew2
 
 find_best_ckpt() {
     local ckpt_dir="$1"

@@ -1,13 +1,10 @@
 #!/bin/bash
-#SBATCH --account=iris
-#SBATCH --partition=iris-hi
 #SBATCH --time=48:00:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=sf_single_pref
-#SBATCH --nodelist=iris7,iris8,iris10
 #SBATCH --output slurm/%j.out
 
 # Single-pref baseline for slow_fast — composite scalar reward = mean of

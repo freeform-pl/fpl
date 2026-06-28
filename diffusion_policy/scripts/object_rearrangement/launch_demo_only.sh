@@ -1,13 +1,10 @@
 #!/bin/bash
-#SBATCH --account=iris
-#SBATCH --partition=iris-hi
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=pp2_demo_only
-#SBATCH --nodelist=iris7,iris8,iris10
 #SBATCH --output slurm/%j.out
 
 # Demo-only baseline for the PickPlace 2-object benchmark.
