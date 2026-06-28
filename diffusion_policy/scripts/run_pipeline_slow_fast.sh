@@ -113,6 +113,12 @@ if [ "${SKIP_ROLLOUTS}" = "true" ]; then
     echo "=== Phase 1: SKIPPED (no rollouts mode — using demos only) ==="
 elif [ ${RESUME_FROM_PHASE} -le 1 ]; then
     echo "=== Phase 1: Training base policy on scripted demos ==="
+    # Clear stale checkpoints from any previous Phase 1 run so old "best"
+    # files don't shadow the new ones (hydra.run.dir is reused).
+    if [ -d "${BASE_CKPT_DIR}" ]; then
+        echo "  Clearing existing checkpoints in ${BASE_CKPT_DIR}"
+        rm -rf "${BASE_CKPT_DIR}"
+    fi
     BASE_OVERRIDES=""
     if [ -n "${BASE_BATCH_SIZE}" ]; then
         BASE_OVERRIDES="${BASE_OVERRIDES} dataloader.batch_size=${BASE_BATCH_SIZE} val_dataloader.batch_size=${BASE_BATCH_SIZE}"
@@ -182,6 +188,12 @@ fi
 if [ "${SKIP_REWARD_MODEL}" = "true" ]; then
     echo "=== Phase 3: SKIPPED (not needed for this baseline) ==="
 elif [ ${RESUME_FROM_PHASE} -le 3 ]; then
+    # Clear stale reward-model output so old scores.json / checkpoints /
+    # diagnostics don't shadow the new run.
+    if [ -d "${REWARD_DIR}" ]; then
+        echo "  Clearing existing reward-model output in ${REWARD_DIR}"
+        rm -rf "${REWARD_DIR}"
+    fi
     if [ "${USE_VALUE_FUNCTION}" = "true" ]; then
         echo "=== Phase 3: Training value function (RECAP-style) ==="
         python reward_model/train_value_function.py \
@@ -218,6 +230,12 @@ if [ "${SKIP_POLICY_TRAINING}" = "true" ]; then
     echo "=== Phase 4: SKIPPED (not needed for this baseline) ==="
 elif [ ${RESUME_FROM_PHASE} -le 4 ]; then
     echo "=== Phase 4: Training policy ==="
+    # Clear stale conditioned-policy checkpoints so the find_best_ckpt search
+    # below doesn't return an epoch=*.ckpt from a previous Phase 4 run.
+    if [ -d "${PIPELINE_DIR}/policy_output/checkpoints" ]; then
+        echo "  Clearing existing checkpoints in ${PIPELINE_DIR}/policy_output/checkpoints"
+        rm -rf "${PIPELINE_DIR}/policy_output/checkpoints"
+    fi
     EXTRA_OVERRIDES=""
     if [ "${SKIP_REWARD_MODEL}" != "true" ]; then
         EXTRA_OVERRIDES="++num_reward_dims=${NUM_REWARD_DIMS} ++scores_path=${SCORES_PATH}"
@@ -284,6 +302,12 @@ echo "Using conditioned checkpoint: ${COND_CKPT}"
 # ============================================================
 if [ ${RESUME_FROM_PHASE} -le 5 ]; then
     echo "=== Phase 5: Evaluation ==="
+    # Clear stale eval artifacts (rollout videos, comparison_results.json)
+    # so we don't mix them with the new run's outputs.
+    if [ -d "${PIPELINE_DIR}/eval" ]; then
+        echo "  Clearing existing eval output in ${PIPELINE_DIR}/eval"
+        rm -rf "${PIPELINE_DIR}/eval"
+    fi
     EVAL_ARGS="--ckpt ${COND_CKPT} --n_rollouts ${N_EVAL_ROLLOUTS} --output_dir ${PIPELINE_DIR}/eval --wandb_project ${WANDB_PROJECT} --num_reward_dims ${NUM_REWARD_DIMS}"
     EVAL_ARGS="${EVAL_ARGS} --n_videos ${N_EVAL_VIDEOS:-3}"
     if [ "${IS_CONDITIONED_EVAL}" = "true" ]; then

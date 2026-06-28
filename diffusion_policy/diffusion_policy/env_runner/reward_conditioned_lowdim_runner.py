@@ -593,16 +593,20 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
                 # success_left/right = successfully placed on that peg (over all trials)
                 prefix_success_left[prefix].append(1.0 if (success and peg_status == 'left') else 0.0)
                 prefix_success_right[prefix].append(1.0 if (success and peg_status == 'right') else 0.0)
+                # Per-peg throughput is marginal across ALL rollouts: rollouts
+                # that didn't land on this peg contribute 0 (failure + 0
+                # throughput). So mean_throughput_{left,right} == success_rate
+                # on that peg × mean throughput among that peg's successes.
+                prefix_throughput_left[prefix].append(throughput if peg_status == 'left' else 0.0)
+                prefix_throughput_right[prefix].append(throughput if peg_status == 'right' else 0.0)
                 if peg_status == 'left':
                     prefix_speed_left[prefix].append(speed_reward)
                     prefix_score_left[prefix].append(score)
-                    prefix_throughput_left[prefix].append(throughput)
                     if success:
                         prefix_first_success_step_left[prefix].append(first_success_step)
                 elif peg_status == 'right':
                     prefix_speed_right[prefix].append(speed_reward)
                     prefix_score_right[prefix].append(score)
-                    prefix_throughput_right[prefix].append(throughput)
                     if success:
                         prefix_first_success_step_right[prefix].append(first_success_step)
 
