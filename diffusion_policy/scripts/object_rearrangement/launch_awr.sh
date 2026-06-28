@@ -9,7 +9,7 @@
 
 # AWR baseline for the PickPlace 2-object benchmark.
 # Active objects: Bread + Can (first two in the right-first canonical order).
-# Uses the same 5-D reward axes as RHP, but the AWR dataset averages them into
+# Uses the same 5-D reward axes as FPL, but the AWR dataset averages them into
 # a scalar advantage weight (exp(beta * mean_z)). No reward conditioning at eval.
 export PIPELINE_DIR="pipeline_output_object_rearrangement_awr"
 export WANDB_PROJECT="object_rearrangement_awr"
@@ -27,7 +27,7 @@ export SKIP_ROLLOUTS=true
 # export SHARED_DATA_DIR="shared_data_object_rearrangement"
 export SHARED_DATA_DIR="shared_data_object_rearrangement"
 
-# Same 5-D reward axes as RHP — AWR averages them into a scalar weight.
+# Same 5-D reward axes as FPL — AWR averages them into a scalar weight.
 export REWARD_AXES="order_reward,bread_placed,can_placed,bread_drop,can_drop"
 export NUM_REWARD_DIMS=5
 export REWARD_EPOCHS=400

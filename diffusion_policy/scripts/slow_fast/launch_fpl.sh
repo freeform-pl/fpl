@@ -4,16 +4,16 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=sf_rhp
+#SBATCH --job-name=sf_fpl
 #SBATCH --output slurm/%j.out
 
-# RHP baseline for slow_fast — mirrors the object_rearrangement RHP structure:
+# FPL baseline for slow_fast — mirrors the object_rearrangement FPL structure:
 # continuous conditioning, augment_score noise, raw z-scores (no rounding),
 # exposed seed/batch/lr knobs.
 # Left peg: speed [1, 4] (fast). Right peg: speed [1, 2] (slow).
 
-export PIPELINE_DIR="pipeline_output_slow_fast_rhp"
-export WANDB_PROJECT="slow_fast_rhp"
+export PIPELINE_DIR="pipeline_output_slow_fast_fpl"
+export WANDB_PROJECT="slow_fast_fpl"
 export BASE_POLICY_DIR="base_policy_slow_fast"
 export IS_CONDITIONED_EVAL=true
 export DISCRETE_CONDITIONING=false
@@ -30,7 +30,7 @@ export NUM_REWARD_DIMS=2
 export REWARD_EPOCHS=200
 export COND_POLICY_EPOCHS=1500
 # BATCH_SIZE / LEARNING_RATE left unset → use reward_conditioned workspace
-# YAML defaults (batch=1024, lr=2e-4) — matches object_rearrangement RHP.
+# YAML defaults (batch=1024, lr=2e-4) — matches object_rearrangement FPL.
 # Training seed (Phase 4 conditioned policy). Same value applied to
 # `training.seed` AND `task.dataset.seed`.
 export TRAINING_SEED=83

@@ -28,7 +28,7 @@ export REWARD_AXES="speed_reward,peg_reward"
 export NUM_REWARD_DIMS=2
 export BASE_POLICY_EPOCHS=1500
 export COND_POLICY_EPOCHS=1500
-# Match RHP/single_pref hyperparams for both Phase 1 (base) and Phase 4 (demo_success).
+# Match FPL/single_pref hyperparams for both Phase 1 (base) and Phase 4 (demo_success).
 export BATCH_SIZE=1024
 export LEARNING_RATE=2e-4
 export BASE_BATCH_SIZE=1024

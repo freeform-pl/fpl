@@ -4,14 +4,14 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=pp2_rhp
+#SBATCH --job-name=pp2_fpl
 #SBATCH --output slurm/%j.out
 
-# RHP baseline for the PickPlace 2-object benchmark.
+# FPL baseline for the PickPlace 2-object benchmark.
 # Active objects: Bread + Can (first two in the right-first canonical order).
 # 5D reward: order + bread_placed + can_placed + bread_drop + can_drop.
-export PIPELINE_DIR="pipeline_output_object_rearrangement_rhp"
-export WANDB_PROJECT="object_rearrangement_rhp"
+export PIPELINE_DIR="pipeline_output_object_rearrangement_fpl"
+export WANDB_PROJECT="object_rearrangement_fpl"
 export BASE_POLICY_DIR="base_policy_object_rearrangement"
 export IS_CONDITIONED_EVAL=true
 export DISCRETE_CONDITIONING=false

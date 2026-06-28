@@ -7,7 +7,7 @@
 #SBATCH --job-name=sf_awr
 #SBATCH --output slurm/%j.out
 
-# AWR baseline for slow_fast. Uses the same 2-D reward axes as RHP but the
+# AWR baseline for slow_fast. Uses the same 2-D reward axes as FPL but the
 # AWR dataset averages them into a scalar advantage weight. No reward
 # conditioning at eval.
 export PIPELINE_DIR="pipeline_output_slow_fast_awr"

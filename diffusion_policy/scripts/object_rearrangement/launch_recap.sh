@@ -38,7 +38,7 @@ export COND_POLICY_EPOCHS=750
 
 export TRAINING_SEED=74
 
-# Augmentation on the per-step advantage at sample time (same role as for RHP /
+# Augmentation on the per-step advantage at sample time (same role as for FPL /
 # single_pref). 0.0 disables.
 export AUGMENT_SCORE=0.1
 export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_every=100 ++training.checkpoint_every=100 ++augment_score=${AUGMENT_SCORE}"

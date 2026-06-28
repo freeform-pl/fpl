@@ -303,7 +303,7 @@ class PickPlaceLowdimRunner(RobomimicLowdimRunner):
         # the reward-conditioned runner logs, derived from n_active_objects:
         # order_reward + per-active-object placed + per-active-object drop +
         # mean_strict_success. Lets every baseline (base policy, AWR,
-        # demo_success, demo_only) be compared on the same axes as RHP.
+        # demo_success, demo_only) be compared on the same axes as FPL.
         from reward_model.reward_functions import (
             compute_pickplace_eval_log, get_pickplace_eval_axes)
         prefixes = [self.env_prefixs[i] for i in range(n_inits)]

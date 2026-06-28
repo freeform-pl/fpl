@@ -34,7 +34,7 @@ export REWARD_AXES="order_reward,bread_placed,can_placed,bread_drop,can_drop"
 export NUM_REWARD_DIMS=5
 export BASE_POLICY_EPOCHS=750
 export COND_POLICY_EPOCHS=750
-# Match RHP / single_pref hyperparameters (workspace YAML defaults for
+# Match FPL / single_pref hyperparameters (workspace YAML defaults for
 # demo_success and the base-policy workspace are batch=256 / lr=1e-4; here
 # we bump to batch=1024 / lr=2e-4 to keep the comparison apples-to-apples).
 # Same override is applied to both Phase 1 (base policy) and Phase 4

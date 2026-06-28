@@ -484,7 +484,7 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
 
             # Canonical PickPlace per-axis logging — shared helper so every
             # baseline (base policy via PickPlaceLowdimRunner, AWR,
-            # demo_success, demo_only, RHP) is compared on the same axes:
+            # demo_success, demo_only, FPL) is compared on the same axes:
             # order_reward + per-active-object placed/drop + mean_strict_success.
             from reward_model.reward_functions import (
                 compute_pickplace_eval_log, get_pickplace_eval_axes)
@@ -681,7 +681,7 @@ class RewardConditionedLowdimRunner(RobomimicLowdimRunner):
         # Per-axis logging for the slow_fast (twopeg) task — same shape as the
         # PickPlace branch: compute each reward axis on every rollout's obs
         # sequence and log the mean. Lets every baseline trained with this
-        # runner (RHP / single_pref / AWR / demo_success) be compared on the
+        # runner (FPL / single_pref / AWR / demo_success) be compared on the
         # same axes side-by-side in wandb (incl. continuous peg_reward_raw).
         from reward_model.reward_functions import (
             compute_pickplace_eval_log, get_slow_fast_logging_axes)

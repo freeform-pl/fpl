@@ -49,6 +49,6 @@ export EVAL_Z_NEGATIVE="[-0.8]"
 export N_PAIRS=70
 
 # Phase 3 trains the composite-scalar reward model for THIS pipeline dir.
-# Cannot reuse RHP's scores.json (different dimensionality).
+# Cannot reuse FPL's scores.json (different dimensionality).
 export RESUME_FROM_PHASE=1
 bash scripts/run_pipeline_object_rearrangement.sh

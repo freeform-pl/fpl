@@ -57,7 +57,7 @@ DISCRETE_CONDITIONING=${DISCRETE_CONDITIONING:-false}
 EXTRA_POLICY_OVERRIDES=${EXTRA_POLICY_OVERRIDES:-}
 EXTRA_BASE_POLICY_OVERRIDES=${EXTRA_BASE_POLICY_OVERRIDES:-}
 # Phase 4 (conditioned policy) hyperparameter overrides. Leave unset to use
-# the workspace YAML defaults (RHP: batch=1024, lr=2e-4).
+# the workspace YAML defaults (FPL: batch=1024, lr=2e-4).
 BATCH_SIZE=${BATCH_SIZE:-}
 LEARNING_RATE=${LEARNING_RATE:-}
 # Phase 1 (base policy) hyperparameter overrides. Independent knobs since

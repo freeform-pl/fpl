@@ -4,8 +4,8 @@ Creates new files in the output directory that can be used directly by demo_succ
 
 Usage:
   python scripts/filter_right_peg_success.py \
-    --rollout_npz pipeline_output_slow_fast_rhp/rollouts.npz \
-    --demo_hdf5 pipeline_output_slow_fast_rhp/scripted_data/demos.hdf5 \
+    --rollout_npz pipeline_output_slow_fast_fpl/rollouts.npz \
+    --demo_hdf5 pipeline_output_slow_fast_fpl/scripted_data/demos.hdf5 \
     --output_dir pipeline_output_slow_fast_success_right_peg
 """
 

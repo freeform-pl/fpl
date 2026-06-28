@@ -126,7 +126,7 @@ class TwoPegLowdimRunner(RobomimicLowdimRunner):
         each axis (success / speed_reward / smoothness / peg_reward /
         peg_reward_raw) on every rollout's obs sequence and logs the mean per
         prefix. Lets every twopeg-derived baseline (base policy, AWR,
-        demo_success, demo_only) be compared on the same axes as RHP."""
+        demo_success, demo_only) be compared on the same axes as FPL."""
         from reward_model.reward_functions import (
             compute_pickplace_eval_log, get_slow_fast_logging_axes)
         n_inits = len(self.env_init_fn_dills)
