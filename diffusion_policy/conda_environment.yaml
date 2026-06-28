@@ -1,4 +1,4 @@
-name: robodiffrew2
+name: robodiff
 channels:
   - pytorch
   - pytorch3d
