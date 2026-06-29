@@ -28,7 +28,7 @@ find_best_ckpt() {
 # ============================================================
 # Configuration
 # ============================================================
-N_SCRIPTED=${N_SCRIPTED:-300}
+N_SCRIPTED=${N_SCRIPTED:-500}
 N_ROLLOUTS=${N_ROLLOUTS:-200}
 N_EVAL_ROLLOUTS=${N_EVAL_ROLLOUTS:-50}
 PIPELINE_DIR=${PIPELINE_DIR:-"pipeline_output_pickplace"}
