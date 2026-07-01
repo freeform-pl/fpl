@@ -86,7 +86,7 @@ Then, train the reward model by running to following:
 We will use the checkpoint so obtained for the next step.
 
 
-#### Inferring from the reward model and finetuning Pi05\
+#### Step 2: Inferring from the reward model and finetuning Pi05
 Now that we have our reward model trained, we will use it to obtain scores for all the data to then finetunie Pi05
 
 Open `./scripts/infer_then_train_pi05.sh` and update the checkpoint path to the path obtained after training the reward model:
