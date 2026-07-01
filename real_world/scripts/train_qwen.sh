@@ -13,7 +13,7 @@
 source /iris/u/abhijnya/FPL/marcel/reward_learning/real_world/scripts/config.sh
 
 cd "$REWARD_LEARNING_DIR"
-conda activate qwen310
+conda activate qwen_rl
 
 echo "=== Node: $(hostname) ==="
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
