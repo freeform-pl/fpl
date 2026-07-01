@@ -1,43 +1,35 @@
 #!/bin/bash
-#SBATCH --account=iris
-#SBATCH --partition=iris-hi
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=12
-#SBATCH --mem=128G
-#SBATCH --job-name=slurm_test
-#SBATCH --output=slurm/%j.out # Ensure the 'slurm' folder exists!
-#SBATCH --nodelist=iris-hgx-1,iris-hgx-2
-#SBATCH --gres=gpu:1
 
 set -euo pipefail
+source ./scripts/config.sh
 
-source /iris/u/abhijnya/FPL/marcel/reward_learning/real_world/scripts/config.sh
+# ============================================================
+# USER INPUTS
+# ============================================================
+CKPT=exp/<add your checkpoint folder name>/checkpoints/final.pt
 
-CKPT=exp/2026-07-01_02-32-52_qwen_open_j16050303/checkpoints/final.pt
-RUN_TAG=2026-07-01_02-32-52_qwen_open_j16050303
-OUTPUT_SUBDIR=fold_pants_iter1_multi_qwen
+# ============================================================
+# DERIVED PATHS — No need to edit
+# ============================================================
+RUN_TAG=$(basename $(dirname $(dirname "$CKPT")))
+OUTPUT_SUBDIR="$TASK"
 DECIMAL_PLACES=1
-ITER_TAG=iter0_2000
-TASK=fold_pants
-TASK_PROMPT="fold the shorts"
-
-
 # Single source of truth — must match convert step below and pi05 input.
-DATASET_REPO_ID="abhijnya/${OUTPUT_SUBDIR}_${DECIMAL_PLACES}dp_${ITER_TAG}"
+DATASET_REPO_ID="abhijnya/${OUTPUT_SUBDIR}_${DECIMAL_PLACES}dp"
+
 
 echo "=== Node: $(hostname) ==="
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 
-# ---------- Step 1: infer + convert (qwen310 env) ----------
-eval "$(${CONDA_ROOT}/bin/conda shell.bash hook)"
+
+# ---------- Step 1: infer + convert (qwen_rl env) ----------
 conda activate qwen_rl
 
 echo "=== [infer] Python: $(which python) ==="
 
 python infer.py \
     --ckpt "$CKPT" \
-    --preferences_dir "${PREFERENCES_DIR}" \
+    --preferences_dir "${PREFERENCES_DIR},${DEMOS_DIR}" \
     --output_dir "${OUTPUT_ROOT}/${OUTPUT_SUBDIR}/${RUN_TAG}" \
     --task "$TASK"
 
@@ -49,6 +41,7 @@ python infer.py \
     --args.decimal_places "$DECIMAL_PLACES"
 
 conda deactivate
+
 
 # ---------- Step 2: pi05 finetune on the repo just created ----------
 cd "$OPENPI_DIR"

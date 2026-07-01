@@ -1,11 +1,4 @@
 #!/bin/bash
-#SBATCH --time=48:00:00
-#SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --gres=gpu:1
-#SBATCH --job-name=sf_recap
-#SBATCH --output slurm/%j.out
 
 # RECAP-style baseline for slow_fast — Phase 3 trains V(s) on time-to-success,
 # Phase 4 conditions the policy per-step on the standardized advantage
@@ -39,5 +32,5 @@ export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_ever
 export EVAL_Z_POSITIVE="[1.0]"
 export EVAL_Z_NEGATIVE="[-1.0]"
 
-export RESUME_FROM_PHASE=1
+export RESUME_FROM_PHASE=0
 bash scripts/run_pipeline_slow_fast.sh

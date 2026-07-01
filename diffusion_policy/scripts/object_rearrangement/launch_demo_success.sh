@@ -1,11 +1,4 @@
 #!/bin/bash
-#SBATCH --time=48:00:00
-#SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --gres=gpu:1
-#SBATCH --job-name=pp2_demo_success
-#SBATCH --output slurm/%j.out
 
 # Demo-success (success-only) baseline for the PickPlace 2-object benchmark.
 # Active objects: Bread + Can (first two in the right-first canonical order).
@@ -52,5 +45,5 @@ export BASE_TRAINING_SEED=42
 export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_every=100 ++training.checkpoint_every=100"
 
 # Skip reward-model phase; jump straight to policy training on the filtered demos.
-export RESUME_FROM_PHASE=1
+export RESUME_FROM_PHASE=0
 bash scripts/run_pipeline_object_rearrangement.sh

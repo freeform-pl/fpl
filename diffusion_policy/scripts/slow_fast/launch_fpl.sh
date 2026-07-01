@@ -1,11 +1,4 @@
 #!/bin/bash
-#SBATCH --time=48:00:00
-#SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --gres=gpu:1
-#SBATCH --job-name=sf_fpl
-#SBATCH --output slurm/%j.out
 
 # FPL baseline for slow_fast — mirrors the object_rearrangement FPL structure:
 # continuous conditioning, augment_score noise, raw z-scores (no rounding),

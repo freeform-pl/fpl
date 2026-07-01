@@ -1,11 +1,4 @@
 #!/bin/bash
-#SBATCH --time=24:00:00
-#SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --gres=gpu:1
-#SBATCH --job-name=sf_demo_only
-#SBATCH --output slurm/%j.out
 
 # Demo-only baseline for slow_fast. Evaluates the base policy directly — no
 # reward model, no AWR weighting, no conditioning. Pure BC on the full demos.
@@ -35,5 +28,5 @@ export BASE_TRAINING_SEED=42
 export EXTRA_BASE_POLICY_OVERRIDES="++training.rollout_every=100 ++training.checkpoint_every=100"
 
 # Phase 1 trains base policy. Phase 4 skipped. Phase 5 evaluates BASE_CKPT.
-export RESUME_FROM_PHASE=1
+export RESUME_FROM_PHASE=0
 bash scripts/run_pipeline_slow_fast.sh

@@ -1,11 +1,4 @@
 #!/bin/bash
-#SBATCH --time=48:00:00
-#SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --gres=gpu:1
-#SBATCH --job-name=sf_single_pref
-#SBATCH --output slurm/%j.out
 
 # Single-pref baseline for slow_fast — composite scalar reward = mean of
 # speed_reward + peg_reward. Mirrors object_rearrangement single_pref structure.
@@ -37,5 +30,5 @@ export EVAL_Z_NEGATIVE="[-0.8]"
 
 export N_PAIRS=200
 
-export RESUME_FROM_PHASE=1
+export RESUME_FROM_PHASE=0
 bash scripts/run_pipeline_slow_fast.sh

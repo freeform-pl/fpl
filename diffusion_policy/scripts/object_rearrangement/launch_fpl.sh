@@ -1,11 +1,4 @@
 #!/bin/bash
-#SBATCH --time=48:00:00
-#SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --gres=gpu:1
-#SBATCH --job-name=pp2_fpl
-#SBATCH --output slurm/%j.out
 
 # FPL baseline for the PickPlace 2-object benchmark.
 # Active objects: Bread + Can (first two in the right-first canonical order).

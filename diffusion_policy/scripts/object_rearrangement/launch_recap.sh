@@ -1,11 +1,4 @@
 #!/bin/bash
-#SBATCH --time=48:00:00
-#SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --gres=gpu:1
-#SBATCH --job-name=pp2_recap
-#SBATCH --output slurm/%j.out
 
 # RECAP-style baseline for the PickPlace 2-object benchmark.
 # Phase 3 trains a value function V(s) that regresses "time-to-success" with
@@ -47,5 +40,5 @@ export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_ever
 export EVAL_Z_POSITIVE="[1.0]"
 export EVAL_Z_NEGATIVE="[-1.0]"
 
-export RESUME_FROM_PHASE=1
+export RESUME_FROM_PHASE=0
 bash scripts/run_pipeline_object_rearrangement.sh

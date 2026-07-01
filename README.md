@@ -41,12 +41,13 @@ python -m robomimic.scripts.download_datasets --tasks square --dataset_types mh 
 
 
 ## Real World Experiments
-This takes you through training the Qwen reward model on the collected preference pairs, converting them into LeRobot format and then filetuning pi05 with this data
+This guide walks through training the Qwen reward model on collected preference pairs, converting the data to LeRobot format, and finetuning Pi05.
 
-We assume that the preferences pairs and optional cross preferences have been collected. For more information on this refer [this repo](https://github.com/freeform-pl/fpl_real)
+
+Before proceeding, preference pairs (and optionally cross preferences) must already be collected. See [this repo](https://github.com/freeform-pl/fpl_real) for details on how to do this.
 
 ### Installation
-We will require 2 environments for this.
+We will require 2 environments for this:
 
 1. Environment for launching Qwen training and inference scripts
 Create the environment using the following commands:
@@ -55,21 +56,54 @@ cd real_world
 conda env create -f conda_environment_real.yaml
 ```
 
-2. Finetuning Pi05:
-Follow [this repo](https://github.com/Physical-Intelligence/openpi) to download the code and set up the pi05 environment.
+2. Environment for Finetuning Pi05
+Create the environments using the following commands:
+```bash
+cd openpi
+git submodule update --init --recursive
+GIT_LFS_SKIP_SMUDGE=1 uv sync
+GIT_LFS_SKIP_SMUDGE=1 uv pip install -e .
+```
+For more information and troubleshooting follow the instructions on [this repo](https://github.com/Physical-Intelligence/openpi).
 
 ### Running the pipeline
 
-#### Training the reward model
+#### Step 1: Training the reward model
+First, open `./scripts/config.sh` and update the following variables:
+```bash
+TASK=""                       # Task to train on — see tasks.py for the full list
+TASK_PROMPT=""                # Natural language prompt describing the task
+DEMOS_DIR=""                  # Comma-separated paths to teh demo directories
+PREFERENCES_DIR=""            # Comma-separated paths to preferences directories
+CROSS_PREFERENCES_DIR=""      # Comma-separated paths to cross preferences directories
+export WANDB_API_KEY=your_key_here  # get it from https://wandb.ai/settings
+```
+Then, train the reward model by running to following:
 ```bash
 ./scripts/train_qwen.sh
 ```
 
+We will use the checkpoint so obtained for the next step.
 
-#### Inferring from the reward model and finetuningPi05
+
+#### Inferring from the reward model and finetuning Pi05\
+Now that we have our reward model trained, we will use it to obtain scores for all the data to then finetunie Pi05
+
+Open `./scripts/infer_then_train_pi05.sh` and update the checkpoint path to the path obtained after training the reward model:
+```bash
+CKPT=exp/<your folder>/checkpoints/final.pt     # Latest training checkpoint
+```
+
+Then run the following script:
 ```bash
 ./scripts/infer_then_train_pi05.sh
 ```
+This script is responsible for infering scores from the reward model, converting them into the desired format, and finetuning Pi05 using that data.
+
+
+## Acknoledgements
+- [Pi05](https://github.com/Physical-Intelligence/openpi/tree/main) was used to finetune the real world policies.
+- The simulation code was built over [Robomimic](https://robomimic.github.io/)
 
 
 ## TO DO

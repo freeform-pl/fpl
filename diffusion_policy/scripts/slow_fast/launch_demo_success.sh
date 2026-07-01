@@ -1,11 +1,4 @@
 #!/bin/bash
-#SBATCH --time=48:00:00
-#SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --gres=gpu:1
-#SBATCH --job-name=sf_demo_success
-#SBATCH --output slurm/%j.out
 
 # Demo-success (success-only) baseline for slow_fast. Trains a plain flow
 # transformer on the subset of demos+rollouts that succeeded. No reward
@@ -42,5 +35,5 @@ export EXTRA_BASE_POLICY_OVERRIDES="++training.rollout_every=100 ++training.chec
 
 # Phase 1 trains base policy, Phase 2 collects rollouts, Phase 4 trains
 # demo_success on filtered demos+rollouts. Phase 3 skipped (no reward model).
-export RESUME_FROM_PHASE=1
+export RESUME_FROM_PHASE=0
 bash scripts/run_pipeline_slow_fast.sh

@@ -1,11 +1,4 @@
 #!/bin/bash
-#SBATCH --time=48:00:00
-#SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --gres=gpu:1
-#SBATCH --job-name=sf_awr
-#SBATCH --output slurm/%j.out
 
 # AWR baseline for slow_fast. Uses the same 2-D reward axes as FPL but the
 # AWR dataset averages them into a scalar advantage weight. No reward
@@ -35,5 +28,5 @@ export EXTRA_POLICY_OVERRIDES="${EXTRA_POLICY_OVERRIDES} ++training.rollout_ever
 export N_PAIRS=100
 
 # Phase 3 trains reward model; Phase 4 trains AWR policy.
-export RESUME_FROM_PHASE=1
+export RESUME_FROM_PHASE=0
 bash scripts/run_pipeline_slow_fast.sh

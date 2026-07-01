@@ -1,11 +1,4 @@
 #!/bin/bash
-#SBATCH --time=24:00:00
-#SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --gres=gpu:1
-#SBATCH --job-name=pp2_demo_only
-#SBATCH --output slurm/%j.out
 
 # Demo-only baseline for the PickPlace 2-object benchmark.
 # Active objects: Bread + Can (first two in the right-first canonical order).
@@ -41,5 +34,5 @@ export REWARD_AXES="order_reward,bread_placed,can_placed,bread_drop,can_drop"
 export NUM_REWARD_DIMS=5
 
 # Phase 5 only: evaluate BASE_CKPT directly. Phases 0–4 all skipped.
-export RESUME_FROM_PHASE=1
+export RESUME_FROM_PHASE=0
 bash scripts/run_pipeline_object_rearrangement.sh

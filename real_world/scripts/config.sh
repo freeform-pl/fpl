@@ -1,15 +1,21 @@
-# Shared variables
-CONDA_ROOT=/iris/u/abhijnya/miniconda3
-CROSS_PREFERENCES_DIR="/iris/u/abhijnya/FPL/test_cross_pref_path"
-PREFERENCES_DIR="/iris/u/abhijnya/FPL/test_pref_path"
-OUTPUT_ROOT=/iris/u/abhijnya/FPL/real_world/infer_output
-OPENPI_DIR="/iris/u/abhijnya/FPL/real_world/openpi"
-OPENPI_PY="$OPENPI_DIR/.venv/bin/python"
+#!/bin/bash
 
-export WANDB_API_KEY="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"
-export HF_LEROBOT_HOME=/iris/u/abhijnya/data
-export WANDB_SERVICE_WAIT=120
-export WANDB_START_METHOD=thread
-export HOME=/iris/u/abhijnya
-source /iris/u/abhijnya/miniconda3/etc/profile.d/conda.sh
-source $HOME/.local/bin/env 
+# ============================================================
+# USER INPUTS — Change these as per your code and data paths
+# ============================================================
+TASK=fold_pants                             # See tasks.py for task list
+TASK_PROMPT="fold the shorts"               # Add the task prompt here
+DEMOS_DIR=""                                # Add the path to the demos directory here
+PREFERENCES_DIR=""                          # Add the path to the preferences directory here
+CROSS_PREFERENCES_DIR=""                    # Add the path to the cross preferences directory here
+export WANDB_API_KEY=your_key_here          # Get it from https://wandb.ai/settings
+
+
+# ============================================================
+# DERIVED PATHS — No need to edit
+# ============================================================
+REAL_WORLD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OPENPI_DIR="$REAL_WORLD_DIR/openpi"
+OPENPI_PY="$OPENPI_DIR/.venv/bin/python"
+OUTPUT_ROOT="$REAL_WORLD_DIR/infer_output"
+export HF_LEROBOT_HOME="$REAL_WORLD_DIR/data"

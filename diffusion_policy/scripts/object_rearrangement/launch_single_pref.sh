@@ -1,11 +1,4 @@
 #!/bin/bash
-#SBATCH --time=48:00:00
-#SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --gres=gpu:1
-#SBATCH --job-name=pp2_single_pref
-#SBATCH --output slurm/%j.out
 
 # Single-pref baseline for the PickPlace 2-object benchmark.
 # Active objects: Bread + Can (first two in the right-first canonical order).
@@ -50,5 +43,5 @@ export N_PAIRS=70
 
 # Phase 3 trains the composite-scalar reward model for THIS pipeline dir.
 # Cannot reuse FPL's scores.json (different dimensionality).
-export RESUME_FROM_PHASE=1
+export RESUME_FROM_PHASE=0
 bash scripts/run_pipeline_object_rearrangement.sh
