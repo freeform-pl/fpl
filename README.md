@@ -101,6 +101,10 @@ Then run the following script:
 This script is responsible for infering scores from the reward model, converting them into the desired format, and finetuning Pi05 using that data.
 
 
-## Acknoledgements
-- [Pi05](https://github.com/Physical-Intelligence/openpi/tree/main) was used to finetune the real world policies.
-- The simulation code was built over [Robomimic](https://robomimic.github.io/)
+## Acknowledgements
+The development of this project, largely benefitted and directly used the following repositories:
+- [openpi](https://github.com/Physical-Intelligence/openpi/tree/main) was used to finetune the real world policies.
+- [robomimic](https://robomimic.github.io/)
+- [diffusion policy](https://github.com/real-stanford/diffusion_policy)
+
+We are very grateful for the great work done with open sourcing the mentioned projects.
