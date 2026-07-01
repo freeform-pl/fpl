@@ -1,4 +1,4 @@
-name: robodiff
+name: trial
 channels:
   - pytorch
   - pytorch3d
@@ -42,6 +42,7 @@ dependencies:
   - click=8.0.4
   - boto3=1.24.96
   - accelerate=0.13.2
+  - huggingface_hub==0.11.1
   - datasets=2.6.1
   - diffusers=0.11.1
   - av=10.0.0
@@ -62,4 +63,5 @@ dependencies:
     # pip package required for jpeg-xl
     - imagecodecs==2022.9.26
     - r3m @ https://github.com/facebookresearch/r3m/archive/b2334e726887fa0206962d7984c69c5fb09cceab.tar.gz
+    - mujoco==2.3.7
     - dm-control==1.0.9
