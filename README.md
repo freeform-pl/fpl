@@ -104,14 +104,3 @@ This script is responsible for infering scores from the reward model, converting
 ## Acknoledgements
 - [Pi05](https://github.com/Physical-Intelligence/openpi/tree/main) was used to finetune the real world policies.
 - The simulation code was built over [Robomimic](https://robomimic.github.io/)
-
-
-## TO DO
-- [ ] Remove slurm related code from sh files
-- [ ] Remove absolute paths, add relative path for sourcing config.sh file in train_qwen.sh and infer_then_train_pi05.sh
-- [ ] Add readme for mentioning the variables that need to be set in config.sh
-- [ ] Replace all paths with `<your xyz path>`
-- [ ] Enhance the ReadMe to add directory structure.
-- [ ] Enhance readme to move all code that people need to manually input (example prompt, task, etc) into config.sh file instead of being in train_qwen.sh and infer files
-
-
