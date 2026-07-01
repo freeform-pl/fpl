@@ -31,10 +31,50 @@ python -m robomimic.scripts.download_datasets --tasks square --dataset_types mh 
 
 #### Bimodal Square task:
 ```bash
-./scripts/slow_fast/launch_rhp.sh
+./scripts/slow_fast/launch_fpl.sh
 ```
 
 #### Object Rearrangement Task:
 ```bash
-./scripts/object_rearrangement/launch_rhp.sh
+./scripts/object_rearrangement/launch_fpl.sh
 ```
+
+
+## Real World Experiments
+This takes you through training the Qwen reward model on the collected preference pairs, converting them into LeRobot format and then filetuning pi05 with this data
+
+We assume that the preferences pairs and optional cross preferences have been collected. For more information on this refer [this repo](https://github.com/freeform-pl/fpl_real)
+
+### Installation
+We will require 2 environments for this.
+
+1. Environment for launching Qwen training and inference scripts
+Create the environment using the following commands:
+```bash
+cd real_world
+conda env create -f conda_environment_real.yaml
+```
+
+2. Finetuning Pi05:
+Follow [this repo](https://github.com/Physical-Intelligence/openpi) to download the code and set up the pi05 environment.
+
+### Running the pipeline
+
+#### Training the reward model
+```bash
+./scripts/train_qwen.sh
+```
+
+
+#### Inferring from the reward model and finetuningPi05
+```bash
+./scripts/infer_then_train_pi05.sh
+```
+
+
+## TO DO
+- [ ] Remove slurm related code from sh files
+- [ ] Remove absolute paths, add relative path for sourcing config.sh file
+- [ ] Add readme for mentioning the variables that need to be set in config.sh
+- [ ] Replace all paths with <insert xyz>
+
