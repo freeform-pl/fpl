@@ -23,7 +23,7 @@ echo "=== Python: $(which python) ==="
 python3 train_reward_model.py \
     --model qwen_open \
     --stride 10 --seq_len 20 --img_size 128 \
-    --batch_size 32 --epochs 1 \
+    --batch_size 32 --epochs 5000 \
     --lr 1e-5 \
     --equal_weight 0.0 \
     --preload --preload_offsets 10 \

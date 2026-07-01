@@ -12,9 +12,10 @@
 
 set -euo pipefail
 
+source /iris/u/abhijnya/FPL/marcel/reward_learning/real_world/scripts/config.sh
 
-CKPT=exp/round1/2026-06-12_18-35-45_qwen_open_j15885981/checkpoints/step003000.pt
-RUN_TAG=2026-06-12_18-35-45_qwen_open_j15885981
+CKPT=exp/2026-07-01_02-32-52_qwen_open_j16050303/checkpoints/final.pt
+RUN_TAG=2026-07-01_02-32-52_qwen_open_j16050303
 OUTPUT_SUBDIR=fold_pants_iter1_multi_qwen
 DECIMAL_PLACES=1
 ITER_TAG=iter0_2000
@@ -23,13 +24,12 @@ TASK_PROMPT="fold the shorts"
 
 
 # Single source of truth — must match convert step below and pi05 input.
-DATASET_REPO_ID="${OUTPUT_SUBDIR}_${DECIMAL_PLACES}dp_${ITER_TAG}"
+DATASET_REPO_ID="abhijnya/${OUTPUT_SUBDIR}_${DECIMAL_PLACES}dp_${ITER_TAG}"
 
 echo "=== Node: $(hostname) ==="
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 
 # ---------- Step 1: infer + convert (qwen310 env) ----------
-cd "$REWARD_LEARNING_DIR"
 eval "$(${CONDA_ROOT}/bin/conda shell.bash hook)"
 conda activate qwen_rl
 
