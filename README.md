@@ -103,8 +103,9 @@ This script is responsible for infering scores from the reward model, converting
 
 ## Acknowledgements
 The development of this project, largely benefitted and directly used the following repositories:
-- [openpi](https://github.com/Physical-Intelligence/openpi/tree/main) was used to finetune the real world policies.
-- [robomimic](https://robomimic.github.io/)
-- [diffusion policy](https://github.com/real-stanford/diffusion_policy)
+- [openpi](https://github.com/Physical-Intelligence/openpi/tree/main) for finetuning the real world policies and open source weights of Pi05.
+- [robomimic](https://robomimic.github.io/) for the simulation structure.
+- [diffusion policy](https://github.com/real-stanford/diffusion_policy) for the code and simulation structure.
+- [qwen](https://huggingface.co/Qwen/Qwen3.5-4B) for their VLM open source weights.
 
 We are very grateful for the great work done with open sourcing the mentioned projects.
