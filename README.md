@@ -2,8 +2,8 @@
 This Repository contains the code for Reward Learning and Simulation
 
 [![arXiv](https://img.shields.io/badge/arXiv-2602.23359-b31b1b.svg)](https://github.com/freeform-preference-learning)
-[![Project Page](https://img.shields.io/badge/Project-Page-blue.svg)](https://github.com/freeform-preference-learning)
-[![GitHub](https://img.shields.io/badge/GitHub-Repository-black.svg)](https://github.com/freeform-preference-learning)
+[![Project Page](https://img.shields.io/badge/Project-Page-blue.svg)](https://freeform-pl.github.io/fpl.website/)
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-black.svg)](https://github.com/freeform-pl)
 
 
 ## Simulation Experiments
